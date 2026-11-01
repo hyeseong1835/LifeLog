@@ -15,6 +15,7 @@ class Uploader(private val q: Queue, private val db: Db, private val meta: (Stri
                 val ops = q.peek(500)
                 if (ops.isEmpty()) { delay(5_000); continue }
                 var i = 0
+                val sent = LinkedHashMap<String, Int>()
                 while (i < ops.size) {
                     val first = ops[i]
                     var j = i
@@ -27,10 +28,12 @@ class Uploader(private val q: Queue, private val db: Db, private val meta: (Stri
                         for (o in chunk) { val d = JSONObject(o.payload); db.delete(first.table, d.getString("device"), d.getString("id")) }
                     }
                     q.ack(chunk.map { it.seq })
+                    sent[first.table] = (sent[first.table] ?: 0) + chunk.size
                     i = j
                 }
                 lastError = null
                 backoff = 5_000L
+                log("전송 " + sent.entries.joinToString(", ") { "${it.key} ${it.value}" })
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 lastError = e.message
