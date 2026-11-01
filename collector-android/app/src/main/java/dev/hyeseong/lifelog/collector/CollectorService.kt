@@ -90,8 +90,11 @@ class CollectorService : Service() {
 
         readSources["usage"] = UsageSource(this)
         readSources["health"] = HealthSource(this)
-        uploadJob = scope.launch { Uploader(queue, db, { tables[it] }) { log(this@CollectorService, it) }.run() }
-        handler.post { loadAndStart() }
+        handler.post {
+            loadAndStart()
+            // 업로더는 플러그인 등록으로 테이블 메타가 채워진 뒤에 돌린다(큐에 남은 행의 메타를 못 찾는 일이 없게)
+            uploadJob = scope.launch { Uploader(queue, db, { tables[it] }) { log(this@CollectorService, it) }.run() }
+        }
     }
 
     /** 플러그인 로드·시작·소스 켜기. QuickJs 인스턴스는 만든 스레드(디스패처)에서만 쓴다. */
