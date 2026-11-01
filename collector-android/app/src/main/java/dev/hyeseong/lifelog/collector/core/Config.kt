@@ -20,6 +20,8 @@ class Config(context: Context) {
     var database: String get() = prefs.getString("database", "postgres") ?: "postgres"; set(v) = prefs.edit().putString("database", v).apply()
     var tenant: String get() = prefs.getString("tenant", "") ?: ""; set(v) = prefs.edit().putString("tenant", v).apply()
     var ssl: Boolean get() = prefs.getBoolean("ssl", true); set(v) = prefs.edit().putBoolean("ssl", v).apply()
+    /** 사용자가 마지막으로 수집 시작을 눌러 둔 상태. 부팅 뒤 자동 시작 여부 */
+    var autostart: Boolean get() = prefs.getBoolean("autostart", false); set(v) = prefs.edit().putBoolean("autostart", v).apply()
     var password: String get() = prefs.getString("password", "") ?: ""; set(v) = prefs.edit().putString("password", v).apply()
 
     val user get() = "lifelog_device_$device" + if (tenant.isEmpty()) "" else ".$tenant"

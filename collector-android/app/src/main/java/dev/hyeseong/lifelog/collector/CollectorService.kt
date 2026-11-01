@@ -64,7 +64,12 @@ class CollectorService : Service() {
         if (granted(android.Manifest.permission.ACCESS_FINE_LOCATION) || granted(android.Manifest.permission.ACCESS_COARSE_LOCATION)) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
         if (granted(android.Manifest.permission.ACTIVITY_RECOGNITION)) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH
         if (type == 0) type = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-        startForeground(1, notification("시작 중"), type)
+        try { startForeground(1, notification("시작 중"), type) }
+        catch (e: Exception) {
+            // 백그라운드(부팅)에서 location/health 종류가 거부되면 specialUse로 한 번 더
+            log(this, "포그라운드 종류 $type 거부, specialUse로 재시도: ${e.message}")
+            startForeground(1, notification("시작 중"), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        }
         running = true
         scope.launch { try { boot() } catch (e: Exception) { log(this@CollectorService, "시작 실패: $e"); status = "시작 실패: ${e.message}"; stopSelf() } }
         return START_STICKY

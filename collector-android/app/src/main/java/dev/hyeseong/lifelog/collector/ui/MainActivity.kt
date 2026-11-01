@@ -141,8 +141,8 @@ class MainActivity : ComponentActivity() {
 
             Text("실행", style = MaterialTheme.typography.titleMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { startForegroundService(Intent(this@MainActivity, CollectorService::class.java)); scope.launch { kotlinx.coroutines.delay(2000); refresh() } }, enabled = !running) { Text("수집 시작") }
-                Button(onClick = { stopService(Intent(this@MainActivity, CollectorService::class.java)); scope.launch { kotlinx.coroutines.delay(2500); refresh() } }, enabled = running) { Text("중지") }
+                Button(onClick = { cfg.autostart = true; startForegroundService(Intent(this@MainActivity, CollectorService::class.java)); scope.launch { kotlinx.coroutines.delay(2000); refresh() } }, enabled = !running) { Text("수집 시작") }
+                Button(onClick = { cfg.autostart = false; stopService(Intent(this@MainActivity, CollectorService::class.java)); scope.launch { kotlinx.coroutines.delay(2500); refresh() } }, enabled = running) { Text("중지") }
                 Button(onClick = { refresh() }) { Text("새로고침") }
             }
             if (msg.isNotEmpty()) Text(msg)
