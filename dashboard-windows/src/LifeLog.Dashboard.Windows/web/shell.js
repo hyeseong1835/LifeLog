@@ -268,6 +268,23 @@ const SECTIONS = [
   { id: "rules-ph", group: "분류 규칙", name: "휴대폰" },
 ];
 const escRe = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** 미분류 항목의 이름 제안. 창 제목 끝의 앱 이름("… - Visual Studio Code")을 우선, 없으면 exe·package 이름을 다듬는다. */
+const KNOWN_NAMES = { msedge: "Edge", chrome: "Chrome", firefox: "Firefox", explorer: "탐색기", lockapp: "잠금 화면", powerpnt: "PowerPoint", winword: "Word", excel: "Excel",
+  code: "VS Code", devenv: "Visual Studio", claude: "Claude", discord: "Discord", kakaotalk: "카카오톡", obsidian: "Obsidian", notepad: "메모장", windowsterminal: "터미널",
+  youtube: "YouTube", instagram: "Instagram", youtubemusic: "YouTube Music", music: "YouTube Music", talk: "카카오톡", gm: "Gmail" };
+function suggestName(key, titles) {
+  for (const t of titles || []) {
+    const parts = String(t).split(/ [-–|] /); const last = parts[parts.length - 1].trim();
+    if (parts.length > 1 && last.length >= 2 && last.length <= 30 && !/^\d+$/.test(last)) return last;
+  }
+  const isExe = /\.exe$/i.test(key);
+  // package면 뒤에서부터 의미 있는 조각(android·app 같은 일반어는 건너뜀)
+  const GENERIC = new Set(["android", "app", "apps", "mobile", "client", "main", "free", "pro", "lite", "kr", "com", "net", "org", "co", "io", "ui", "activity", "phone"]);
+  const base = !isExe && String(key).includes(".") ? (String(key).split(".").reverse().find(x => !GENERIC.has(x.toLowerCase())) || String(key).split(".").pop()) : String(key).replace(/\.exe$/i, "");
+  const k = base.toLowerCase().replace(/\s+/g, "");
+  if (KNOWN_NAMES[k]) return KNOWN_NAMES[k];
+  return base.charAt(0).toUpperCase() + base.slice(1);
+}
 
 function renderSettingsPage() {
   const page = $("#settingsPage");
@@ -312,7 +329,7 @@ function renderRules(c, kind) {
     ${rules.map((r, i) => `<tr><td class="mute">${i + 1}</td><td><input data-i="${i}" data-k="name" value="${esc(r.name)}"></td>${cols.map(x => `<td><input data-i="${i}" data-k="${x[0]}" value="${esc(r[x[0]] || "")}"></td>`).join("")}<td><button data-up="${i}" title="위로">↑</button><button data-del="${i}">✕</button></td></tr>`).join("")}
     </tbody></table>
     <div class="row"><button id="addRule">규칙 추가</button><button id="saveRules">저장</button><span id="ruleMsg" class="mute"></span></div>
-    <h3>최근 7일 미분류 <span class="mute">지금 규칙에 안 맞는 ${kind === "pc" ? "앱" : "package"}, 사용 시간 순. "규칙"을 누르면 그 ${kind === "pc" ? "앱" : "package"}으로 새 규칙 줄을 만든다</span></h3>
+    <h3>최근 7일 미분류 <span class="mute">지금 규칙에 안 맞는 ${kind === "pc" ? "앱" : "package"}, 사용 시간 순. "추가"를 누르면 그 ${kind === "pc" ? "앱" : "package"}으로 새 규칙 줄을 만들고 이름을 제안한다</span></h3>
     <div id="unmatched" class="mute">불러오는 중…</div>`;
   const collect = () => c.querySelectorAll("input[data-i]").forEach(el => { rules[Number(el.dataset.i)][el.dataset.k] = el.value; });
   c.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { collect(); rules.splice(Number(b.dataset.del), 1); renderSettingsPage(); });
@@ -344,14 +361,14 @@ async function renderUnmatched(el, kind, rules) {
     if (items.length === 0) { el.textContent = "미분류가 없습니다."; return; }
     el.className = "";
     el.innerHTML = `<table class="unmatched"><thead><tr><th>${kind === "pc" ? "앱" : "package"}</th><th>시간</th><th>예(창 제목)</th><th></th></tr></thead><tbody>` +
-      items.slice(0, 40).map(it => `<tr><td><code>${esc(it.key)}</code></td><td class="num">${LifeLogSdk.fmtDur(it.sec * 1000)}</td><td class="mute ex">${it.sub.map(esc).join("<br>")}</td><td><button data-mk="${esc(it.key)}">규칙</button></td></tr>`).join("") + "</tbody></table>" +
+      items.slice(0, 40).map(it => `<tr><td><code>${esc(it.key)}</code></td><td class="num">${LifeLogSdk.fmtDur(it.sec * 1000)}</td><td class="mute ex">${it.sub.map(esc).join("<br>")}</td><td><button data-mk="${esc(it.key)}" data-name="${esc(suggestName(it.key, it.sub))}">추가</button></td></tr>`).join("") + "</tbody></table>" +
       (items.length > 40 ? `<div class="mute">… ${items.length - 40}개 더</div>` : "");
     el.querySelectorAll("[data-mk]").forEach(b => b.onclick = () => {
       // 입력 중인 값을 잃지 않게 모으고, 그 앱으로 규칙 줄 추가
       el.closest(".content").querySelectorAll("input[data-i]").forEach(x => { rules[Number(x.dataset.i)][x.dataset.k] = x.value; });
-      rules.push({ name: "", app: "^" + escRe(b.dataset.mk) + "$", title: "" });
+      rules.push({ name: b.dataset.name || "", app: "^" + escRe(b.dataset.mk) + "$", title: "" });
       renderSettingsPage();
-      const inputs = $("#settingsContent").querySelectorAll('input[data-k="name"]'); inputs[inputs.length - 1]?.focus();
+      const inputs = $("#settingsContent").querySelectorAll('input[data-k="name"]'); const last = inputs[inputs.length - 1]; if (last) { last.focus(); last.select(); }
     });
   } catch (e) { el.textContent = "불러오지 못함: " + e.message; }
 }
