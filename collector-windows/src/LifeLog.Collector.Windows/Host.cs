@@ -129,7 +129,7 @@ public sealed class Host : IAsyncDisposable
         while (Queue.Count() > 0 && _uploader.LastError is null) await Task.Delay(500);
     }
 
-    public static readonly HashSet<string> KnownSources = ["window", "idle", "power", "media"];
+    public static readonly HashSet<string> KnownSources = ["window", "idle", "power", "media", "input", "battery"];
 
     private static ISource? CreateSource(string id) => id switch
     {
@@ -137,6 +137,8 @@ public sealed class Host : IAsyncDisposable
         "idle" => new IdleSource(),
         "power" => new PowerSource(),
         "media" => new MediaSource(),
+        "input" => new InputSource(),
+        "battery" => new BatterySource(),
         _ => null,
     };
 
@@ -147,6 +149,7 @@ public sealed class Host : IAsyncDisposable
         if (!HasCapability(p, cap)) throw new InvalidOperationException($"권한이 허용되지 않았습니다: {cap}");
     }
     public JsonElement SettingsOf(JsPlugin p) => _installs[p.Manifest.Id].Settings;
+    public IEnumerable<string> GrantedOf(JsPlugin p) => _installs.TryGetValue(p.Manifest.Id, out var i) ? i.Granted : [];
 
     public JsonElement? StateGet(JsPlugin p, string key) => Db.StateGetAsync(p.Manifest.Id, Config.Device, key).GetAwaiter().GetResult();
     public void StateSet(JsPlugin p, string key, string json) => Db.StateSetAsync(p.Manifest.Id, Config.Device, key, json).GetAwaiter().GetResult();

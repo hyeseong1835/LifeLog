@@ -1,0 +1,21 @@
+{
+  "type": "collector",
+  "id": "win-input",
+  "version": "1.0.0",
+  "name": "입력 활동량 (Windows)",
+  "min_host_version": 1,
+  "runtimes": { "js": "main.js" },
+  "capabilities": [
+    { "id": "event:input", "required": true }
+  ],
+  "outputs": [
+    {
+      "name": "input",
+      "kind": "event",
+      "schema_version": 1,
+      "columns": { "keys": "integer", "clicks": "integer", "scrolls": "integer", "mouse_px": "integer" },
+      "label": "keys",
+      "identity": []
+    }
+  ]
+}

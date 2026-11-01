@@ -94,11 +94,12 @@ public sealed class JsPlugin
         public SpanApi span { get; }
         public EventApi @event { get; }
         public StateApi state { get; }
+        public FileApi file { get; }
 
         public Ctx(JsPlugin p, Host h)
         {
             _p = p; _h = h;
-            span = new SpanApi(p, h); @event = new EventApi(p, h); state = new StateApi(p, h);
+            span = new SpanApi(p, h); @event = new EventApi(p, h); state = new StateApi(p, h); file = new FileApi(p, h);
         }
 
         public void on(string source, JsValue handler)
@@ -160,6 +161,95 @@ public sealed class JsPlugin
             var (o, cols, time, _) = _h.ParseRow(_p, output, row, needTime: true);
             var key = opts is { } op && op.IsObject() && op.AsObject().Get("key") is { } k && !k.IsUndefined() && !k.IsNull() ? k.ToString() : null;
             return _h.Spans.Emit(_p.Manifest, o, time!.Value, cols, key).ToString();
+        }
+    }
+
+    /// <summary>
+    /// 원시 기능: 파일 읽기(Documents/수집기 호스트 API.md 3절). 권한 `file:read:&lt;경로 접두어&gt;`가 허용된 경로 아래만 읽는다.
+    /// 경로의 `~`는 사용자 프로필, `%VAR%`는 환경 변수로 푼다. 쓰기는 없다.
+    /// </summary>
+    public sealed class FileApi
+    {
+        private readonly JsPlugin _p; private readonly Host _h;
+        public FileApi(JsPlugin p, Host h) { _p = p; _h = h; }
+
+        public static string Expand(string p)
+        {
+            p = Environment.ExpandEnvironmentVariables(p);
+            if (p == "~" || p.StartsWith("~/") || p.StartsWith("~\\"))
+                p = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), p.Length > 1 ? p[2..] : "");
+            return Path.GetFullPath(p);
+        }
+
+        private string Allow(string path)
+        {
+            var full = Expand(path);
+            foreach (var cap in _h.GrantedOf(_p))
+            {
+                if (!cap.StartsWith("file:read:")) continue;
+                var prefix = Expand(cap["file:read:".Length..]).TrimEnd('\\', '/');
+                if (string.Equals(full, prefix, StringComparison.OrdinalIgnoreCase) ||
+                    full.StartsWith(prefix + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return full;
+            }
+            throw new InvalidOperationException("권한이 허용되지 않았습니다: file:read:" + path);
+        }
+
+        /// <summary>디렉터리 항목. [{ path, name, dir, size, mtime }]. pattern은 "*.jsonl" 같은 글롭(기본 "*").</summary>
+        public JsValue list(string dir, string? pattern = null, bool recursive = false)
+        {
+            var d = Allow(dir);
+            if (!Directory.Exists(d)) return JsValue.FromObject(_p._engine!, Array.Empty<object>());
+            var opt = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+            var pat = string.IsNullOrEmpty(pattern) ? "*" : pattern;
+            var items = new List<object>();
+            foreach (var e in new DirectoryInfo(d).EnumerateFileSystemInfos(pat, opt))
+            {
+                var isDir = e is DirectoryInfo;
+                items.Add(new Dictionary<string, object?>
+                {
+                    ["path"] = e.FullName, ["name"] = e.Name, ["dir"] = isDir,
+                    ["size"] = isDir ? 0L : ((FileInfo)e).Length, ["mtime"] = e.LastWriteTimeUtc.ToString("o"),
+                });
+            }
+            return JsValue.FromObject(_p._engine!, items.ToArray());
+        }
+
+        /// <summary>{ size, mtime } 또는 null.</summary>
+        public JsValue stat(string path)
+        {
+            var f = new FileInfo(Allow(path));
+            if (!f.Exists) return JsValue.Null;
+            return JsValue.FromObject(_p._engine!, new Dictionary<string, object?> { ["size"] = f.Length, ["mtime"] = f.LastWriteTimeUtc.ToString("o") });
+        }
+
+        /// <summary>
+        /// UTF-8 텍스트 읽기. opts { from: 바이트 오프셋(기본 0), max: 최대 바이트(기본 4MB) } → { text, next, size, eof }.
+        /// 끝까지 못 읽었으면 마지막 줄바꿈까지만 돌려주고 next는 그 다음 바이트를 가리킨다(줄 단위 이어 읽기용).
+        /// </summary>
+        public JsValue read(string path, JsValue? opts = null)
+        {
+            var full = Allow(path);
+            long from = 0; int max = 4 * 1024 * 1024;
+            if (opts is { } o && o.IsObject())
+            {
+                var ob = o.AsObject();
+                if (ob.Get("from") is { } f && f.IsNumber()) from = (long)f.AsNumber();
+                if (ob.Get("max") is { } m && m.IsNumber()) max = (int)m.AsNumber();
+            }
+            using var fs = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var size = fs.Length;
+            if (from >= size) return JsValue.FromObject(_p._engine!, new Dictionary<string, object?> { ["text"] = "", ["next"] = size, ["size"] = size, ["eof"] = true });
+            fs.Position = from;
+            var buf = new byte[(int)Math.Min(max, size - from)];
+            var n = 0; while (n < buf.Length) { var r = fs.Read(buf, n, buf.Length - n); if (r <= 0) break; n += r; }
+            var eof = from + n >= size;
+            if (!eof)
+            {
+                var cut = Array.LastIndexOf(buf, (byte)'\n', n - 1);
+                if (cut >= 0) n = cut + 1;
+            }
+            var text = System.Text.Encoding.UTF8.GetString(buf, 0, n);
+            return JsValue.FromObject(_p._engine!, new Dictionary<string, object?> { ["text"] = text, ["next"] = from + n, ["size"] = size, ["eof"] = eof });
         }
     }
 

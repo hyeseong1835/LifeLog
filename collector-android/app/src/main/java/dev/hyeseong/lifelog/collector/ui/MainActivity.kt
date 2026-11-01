@@ -115,7 +115,10 @@ class MainActivity : ComponentActivity() {
                 Button(onClick = { perms.launch(arrayOf(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION)) }) { Text("위치 항상 허용") }
                 Button(onClick = { if (HealthSource.available(this@MainActivity)) health.launch(HealthSource.PERMISSIONS) else msg = "Health Connect 없음" }) { Text("Health Connect") }
             }
-            Button(onClick = { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }) { Text("배터리 최적화 제외(설정에서 이 앱을 '제한 없음'으로)") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }) { Text("알림 접근(미디어)") }
+                Button(onClick = { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }) { Text("배터리 최적화 제외") }
+            }
 
             Text("플러그인", style = MaterialTheme.typography.titleMedium)
             Button(onClick = {

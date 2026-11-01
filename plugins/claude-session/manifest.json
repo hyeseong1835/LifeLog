@@ -1,0 +1,26 @@
+{
+  "type": "collector",
+  "id": "claude-session",
+  "version": "1.0.0",
+  "name": "Claude Code 세션",
+  "min_host_version": 1,
+  "runtimes": { "js": "main.js" },
+  "capabilities": [
+    { "id": "file:read:~/.claude/projects", "required": true },
+    { "id": "timer", "required": true }
+  ],
+  "outputs": [
+    {
+      "name": "session",
+      "kind": "span",
+      "schema_version": 1,
+      "columns": { "session_id": "text", "project": "text", "branch": "text", "turns": "integer", "version": "text" },
+      "label": "project",
+      "identity": ["session_id"],
+      "index": ["project"]
+    }
+  ],
+  "settings": [
+    { "key": "root", "type": "text", "default": "~/.claude/projects", "label": "세션 로그 폴더" }
+  ]
+}
