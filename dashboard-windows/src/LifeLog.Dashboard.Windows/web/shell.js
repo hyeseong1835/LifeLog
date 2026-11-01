@@ -260,43 +260,100 @@ function renderTabs() {
   if (add) add.onclick = async () => { const n = prompt("새 뷰 이름"); if (!n) return; const v = { id: uid(), name: n, widgets: [] }; settings.views.push(v); viewId = v.id; await saveSettings(); load(); };
 }
 
-// ---- 설정 페이지(테마·하루 시작·그리드·분류 규칙) ----
+// ---- 설정 페이지: 사이드바(일반 / 분류 규칙 › 컴퓨터·휴대폰) + 내용 ----
+let settingsSection = "general";
+const SECTIONS = [
+  { id: "general", group: "일반", name: "일반" },
+  { id: "rules-pc", group: "분류 규칙", name: "컴퓨터" },
+  { id: "rules-ph", group: "분류 규칙", name: "휴대폰" },
+];
+const escRe = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 function renderSettingsPage() {
   const page = $("#settingsPage");
-  const pc = settings.categories || (settings.categories = []);
-  const ph = settings.phone_categories || (settings.phone_categories = []);
+  page.innerHTML = `<div class="settings"><nav class="side">${(() => {
+    let html = "", g = null;
+    for (const s of SECTIONS) { if (s.group !== g) { g = s.group; html += `<div class="group">${esc(g)}</div>`; } html += `<button class="item ${s.id === settingsSection ? "on" : ""}" data-sec="${s.id}">${esc(s.name)}</button>`; }
+    return html;
+  })()}</nav><div class="content" id="settingsContent"></div></div>`;
+  page.querySelectorAll("[data-sec]").forEach(b => b.onclick = () => { settingsSection = b.dataset.sec; renderSettingsPage(); });
+  const c = $("#settingsContent");
+  if (settingsSection === "general") renderGeneral(c);
+  else renderRules(c, settingsSection === "rules-pc" ? "pc" : "ph");
+}
+
+function renderGeneral(c) {
   const u = gridUnits();
-  const table = (rules, kind, cols) => `<table class="rules" data-kind="${kind}"><thead><tr><th>이름</th>${cols.map(c => `<th>${esc(c[1])}</th>`).join("")}<th></th></tr></thead><tbody>
-    ${rules.map((r, i) => `<tr><td><input data-i="${i}" data-k="name" value="${esc(r.name)}"></td>${cols.map(c => `<td><input data-i="${i}" data-k="${c[0]}" value="${esc(r[c[0]] || "")}"></td>`).join("")}<td><button data-del="${i}">✕</button></td></tr>`).join("")}
-    </tbody></table><div class="row"><button data-add="${kind}">규칙 추가</button></div>`;
-  page.innerHTML = `<h2>설정 (이 기기)</h2>
-    <div class="row">
-      <label>테마 <select id="theme"><option value="system" ${settings.theme === "system" || !settings.theme ? "selected" : ""}>시스템 따름</option><option value="dark" ${settings.theme === "dark" ? "selected" : ""}>다크</option><option value="light" ${settings.theme === "light" ? "selected" : ""}>라이트</option></select></label>
-      <label>하루 시작 <input id="dayStart" value="${esc(settings.day_start)}" size="6"></label>
-      <label>한 칸 크기(px) <input id="gridCell" type="number" value="${u.cell}" size="5"></label>
-      <label>간격(px) <input id="gridGap" type="number" value="${u.gap}" size="4"></label>
-    </div>
-    <h3>컴퓨터 분류 규칙 <span class="mute">위에서부터 처음 맞는 규칙. 정규식, 대소문자 무시. 이름은 "개발/코딩"처럼 /로 계층</span></h3>
-    ${table(pc, "pc", [["app", "app (exe 이름)"], ["title", "title (창 제목)"]])}
-    <h3>휴대폰 분류 규칙 <span class="mute">package 이름으로 맞춘다(예: com.google.android.youtube)</span></h3>
-    ${table(ph, "ph", [["app", "package"]])}
-    <div class="row"><button id="saveRules">저장</button><span id="ruleMsg" class="mute"></span></div>`;
-  const collect = () => page.querySelectorAll("table.rules").forEach(t => {
-    const rules = t.dataset.kind === "pc" ? pc : ph;
-    t.querySelectorAll("input[data-i]").forEach(el => { rules[Number(el.dataset.i)][el.dataset.k] = el.value; });
-  });
-  page.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { collect(); (b.closest("table").dataset.kind === "pc" ? pc : ph).splice(Number(b.dataset.del), 1); renderSettingsPage(); });
-  page.querySelectorAll("[data-add]").forEach(b => b.onclick = () => { collect(); (b.dataset.add === "pc" ? pc : ph).push({ name: "", app: "", title: "" }); renderSettingsPage(); });
+  c.innerHTML = `<h2>일반</h2>
+    <div class="field"><b>테마</b><p class="mute">대시보드와 위젯의 색. 시스템 따름은 Windows 설정을 따른다.</p>
+      <select id="theme"><option value="system">시스템 따름</option><option value="dark">다크</option><option value="light">라이트</option></select></div>
+    <div class="field"><b>하루 시작</b><p class="mute">이 시각부터 다음 날 같은 시각까지가 하루. 기기별 설정.</p><input id="dayStart" value="${esc(settings.day_start)}" size="6"></div>
+    <div class="field"><b>보드 칸 크기</b><p class="mute">위젯 위치·크기의 단위(px). 바꾸면 모든 위젯이 같은 비율로 커지거나 작아진다.</p>
+      <label>한 칸 <input id="gridCell" type="number" value="${u.cell}" size="5"></label> <label>간격 <input id="gridGap" type="number" value="${u.gap}" size="4"></label></div>
+    <div class="row"><button id="saveGeneral">저장</button><span id="generalMsg" class="mute"></span></div>`;
+  $("#theme").value = settings.theme || "system";
   $("#theme").onchange = () => { settings.theme = $("#theme").value; applyTheme(); };
-  $("#saveRules").onclick = async () => {
-    collect();
+  $("#saveGeneral").onclick = async () => {
     settings.theme = $("#theme").value;
     settings.day_start = $("#dayStart").value.trim() || "04:00";
     settings.grid = { cell: Number($("#gridCell").value) || 60, gap: Number($("#gridGap").value) || 0 };
-    settings.categories = pc.filter(r => r.name);
-    settings.phone_categories = ph.filter(r => r.name);
-    await saveSettings(); applyTheme(); $("#ruleMsg").textContent = "저장됨"; load();
+    await saveSettings(); applyTheme(); $("#generalMsg").textContent = "저장됨"; load();
   };
+}
+
+/** 분류 규칙 편집 + 최근 7일 미분류 목록(사용 시간 순). kind: pc(app·title) | ph(package) */
+function renderRules(c, kind) {
+  const key = kind === "pc" ? "categories" : "phone_categories";
+  const rules = settings[key] || (settings[key] = []);
+  const cols = kind === "pc" ? [["app", "app (exe 이름)"], ["title", "title (창 제목)"]] : [["app", "package"]];
+  c.innerHTML = `<h2>분류 규칙 › ${kind === "pc" ? "컴퓨터" : "휴대폰"}</h2>
+    <p class="mute">위에서부터 처음 맞는 규칙을 쓴다. 정규식, 대소문자 무시. 이름은 "개발/코딩"처럼 /로 계층. ${kind === "pc" ? "app은 exe 이름(예: ^code\\.exe$), title은 창 제목." : "app 칸에 package 이름(예: ^com\\.google\\.android\\.youtube$)."}</p>
+    <table class="rules"><thead><tr><th style="width:28px"></th><th>이름</th>${cols.map(x => `<th>${esc(x[1])}</th>`).join("")}<th></th></tr></thead><tbody>
+    ${rules.map((r, i) => `<tr><td class="mute">${i + 1}</td><td><input data-i="${i}" data-k="name" value="${esc(r.name)}"></td>${cols.map(x => `<td><input data-i="${i}" data-k="${x[0]}" value="${esc(r[x[0]] || "")}"></td>`).join("")}<td><button data-up="${i}" title="위로">↑</button><button data-del="${i}">✕</button></td></tr>`).join("")}
+    </tbody></table>
+    <div class="row"><button id="addRule">규칙 추가</button><button id="saveRules">저장</button><span id="ruleMsg" class="mute"></span></div>
+    <h3>최근 7일 미분류 <span class="mute">지금 규칙에 안 맞는 ${kind === "pc" ? "앱" : "package"}, 사용 시간 순. "규칙"을 누르면 그 ${kind === "pc" ? "앱" : "package"}으로 새 규칙 줄을 만든다</span></h3>
+    <div id="unmatched" class="mute">불러오는 중…</div>`;
+  const collect = () => c.querySelectorAll("input[data-i]").forEach(el => { rules[Number(el.dataset.i)][el.dataset.k] = el.value; });
+  c.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { collect(); rules.splice(Number(b.dataset.del), 1); renderSettingsPage(); });
+  c.querySelectorAll("[data-up]").forEach(b => b.onclick = () => { const i = Number(b.dataset.up); if (i === 0) return; collect(); const r = rules.splice(i, 1)[0]; rules.splice(i - 1, 0, r); renderSettingsPage(); });
+  $("#addRule").onclick = () => { collect(); rules.push({ name: "", app: "", title: "" }); renderSettingsPage(); };
+  $("#saveRules").onclick = async () => { collect(); settings[key] = rules.filter(r => r.name); await saveSettings(); $("#ruleMsg").textContent = "저장됨"; renderSettingsPage(); };
+  renderUnmatched(c.querySelector("#unmatched"), kind, rules);
+}
+
+async function renderUnmatched(el, kind, rules) {
+  const end = new Date(), start = new Date(end.getTime() - 7 * 86400e3);
+  const range = { start: start.toISOString(), end: end.toISOString() };
+  try {
+    let items;
+    if (kind === "pc") {
+      const res = await lifelog.query("win-window/window", { range, group: { by: ["app", "title"] }, agg: { dur: "duration" }, limit: 20000 });
+      const byApp = new Map();
+      for (const r of res.rows) {
+        if (LifeLogSdk.matchRules(rules, r.app, r.title)) continue;
+        const a = byApp.get(r.app) || { key: r.app, sec: 0, titles: [] };
+        a.sec += Number(r.dur) || 0; a.titles.push({ t: r.title, sec: Number(r.dur) || 0 }); byApp.set(r.app, a);
+      }
+      items = [...byApp.values()].map(a => ({ key: a.key, sec: a.sec, sub: a.titles.sort((x, y) => y.sec - x.sec).slice(0, 3).map(x => x.t).filter(Boolean) }));
+    } else {
+      const res = await lifelog.query("phone-app/app", { range, group: { by: ["package"] }, agg: { dur: "duration" }, limit: 20000 });
+      items = res.rows.filter(r => !LifeLogSdk.matchRules(rules, r.package, "")).map(r => ({ key: r.package, sec: Number(r.dur) || 0, sub: [] }));
+    }
+    items.sort((a, b) => b.sec - a.sec);
+    if (items.length === 0) { el.textContent = "미분류가 없습니다."; return; }
+    el.className = "";
+    el.innerHTML = `<table class="unmatched"><thead><tr><th>${kind === "pc" ? "앱" : "package"}</th><th>시간</th><th>예(창 제목)</th><th></th></tr></thead><tbody>` +
+      items.slice(0, 40).map(it => `<tr><td><code>${esc(it.key)}</code></td><td class="num">${LifeLogSdk.fmtDur(it.sec * 1000)}</td><td class="mute ex">${it.sub.map(esc).join("<br>")}</td><td><button data-mk="${esc(it.key)}">규칙</button></td></tr>`).join("") + "</tbody></table>" +
+      (items.length > 40 ? `<div class="mute">… ${items.length - 40}개 더</div>` : "");
+    el.querySelectorAll("[data-mk]").forEach(b => b.onclick = () => {
+      // 입력 중인 값을 잃지 않게 모으고, 그 앱으로 규칙 줄 추가
+      el.closest(".content").querySelectorAll("input[data-i]").forEach(x => { rules[Number(x.dataset.i)][x.dataset.k] = x.value; });
+      rules.push({ name: "", app: "^" + escRe(b.dataset.mk) + "$", title: "" });
+      renderSettingsPage();
+      const inputs = $("#settingsContent").querySelectorAll('input[data-k="name"]'); inputs[inputs.length - 1]?.focus();
+    });
+  } catch (e) { el.textContent = "불러오지 못함: " + e.message; }
 }
 
 async function init() {
@@ -342,4 +399,5 @@ document.addEventListener("mousemove", e => {
   tip.textContent = t.dataset.tip; tip.style.display = "block";
   tip.style.left = Math.min(e.clientX + 12, innerWidth - 300) + "px"; tip.style.top = (e.clientY + 14) + "px";
 });
+if (params.get("page") === "settings") { settingsSection = params.get("sec") || "general"; setTimeout(() => showPage("settingsPage"), 1500); }   // 개발용
 init();

@@ -89,7 +89,7 @@ public partial class MainWindow : Window
             }
             // 개발용: --offset N → N일 전 하루를 연다
             var oi = Array.IndexOf(args, "--offset");
-            var url = "https://app.lifelog/index.html" + (oi >= 0 && oi + 1 < args.Length ? "?offset=" + Uri.EscapeDataString(args[oi + 1]) : "?offset=0") + (args.Contains("--edit") ? "&edit=1" : "") + (Array.IndexOf(args, "--theme") is var ti && ti >= 0 && ti + 1 < args.Length ? "&theme=" + args[ti + 1] : "");
+            var url = "https://app.lifelog/index.html" + (oi >= 0 && oi + 1 < args.Length ? "?offset=" + Uri.EscapeDataString(args[oi + 1]) : "?offset=0") + (args.Contains("--edit") ? "&edit=1" : "") + (Array.IndexOf(args, "--theme") is var ti && ti >= 0 && ti + 1 < args.Length ? "&theme=" + args[ti + 1] : "") + (Array.IndexOf(args, "--page") is var pi && pi >= 0 && pi + 1 < args.Length ? "&page=" + args[pi + 1] : "") + (Array.IndexOf(args, "--sec") is var si2 && si2 >= 0 && si2 + 1 < args.Length ? "&sec=" + args[si2 + 1] : "");
             core.Navigate(url);
         }
         catch (Exception e)
