@@ -8,7 +8,7 @@ namespace LifeLog.Core;
 public sealed class Db : IAsyncDisposable
 {
     /// <summary>이 앱이 아는 코어 스키마 버전. DB가 더 높으면 쓰기를 멈춘다(Documents/등록 함수.md 4절).</summary>
-    public const int KnownSchemaVersion = 3;
+    public const int KnownSchemaVersion = 4;
 
     private readonly NpgsqlDataSource _ds;
     public TimeSpan ClockOffset { get; private set; }   // DB now() - 로컬 now

@@ -13,6 +13,7 @@ static class Cli
         lifelog-collector <명령>
 
           setup   --device ID --name 이름 --host H --port P --database DB [--no-ssl]
+          setup-reset  같은 인자. 이미 등록된 기기의 비밀번호를 다시 받아 설정한다
                   관리자 접속 문자열은 환경 변수 LIFELOG_ADMIN_DSN 또는 표준 입력으로 받는다(저장하지 않음).
                   기기 롤을 만들고 비밀번호를 DPAPI로 보호해 config.json에 둔다.
           install <플러그인 폴더 또는 zip> [--grant-all]
@@ -37,7 +38,8 @@ static class Cli
         {
             switch (args[0])
             {
-                case "setup": return await SetupAsync(args[1..]);
+                case "setup": return await SetupAsync(args[1..], reset: false);
+                case "setup-reset": return await SetupAsync(args[1..], reset: true);
                 case "install": return await InstallAsync(args[1..]);
                 case "enable": return await EnableAsync(args[1], true);
                 case "disable": return await EnableAsync(args[1], false);
@@ -57,7 +59,8 @@ static class Cli
 
     static string? Opt(string[] a, string name) { var i = Array.IndexOf(a, name); return i >= 0 && i + 1 < a.Length ? a[i + 1] : null; }
 
-    static async Task<int> SetupAsync(string[] a)
+    /// <summary>reset=true면 이미 등록된 기기의 비밀번호를 reset_device_password로 다시 받는다(이관 도구가 먼저 등록한 경우 등).</summary>
+    static async Task<int> SetupAsync(string[] a, bool reset)
     {
         var device = Opt(a, "--device") ?? throw new ArgumentException("--device가 필요합니다");
         var name = Opt(a, "--name") ?? device;
@@ -77,10 +80,15 @@ static class Cli
         await using (var conn = new NpgsqlConnection(admin))
         {
             await conn.OpenAsync();
-            await using var cmd = new NpgsqlCommand("SELECT lifelog.register_device($1, $2, $3)", conn);
+            await using var cmd = reset
+                ? new NpgsqlCommand("SELECT lifelog.reset_device_password($1)", conn)
+                : new NpgsqlCommand("SELECT lifelog.register_device($1, $2, $3)", conn);
             cmd.Parameters.Add(new NpgsqlParameter { Value = device });
-            cmd.Parameters.Add(new NpgsqlParameter { Value = name });
-            cmd.Parameters.Add(new NpgsqlParameter { Value = "Windows " + Environment.OSVersion.Version });
+            if (!reset)
+            {
+                cmd.Parameters.Add(new NpgsqlParameter { Value = name });
+                cmd.Parameters.Add(new NpgsqlParameter { Value = "Windows " + Environment.OSVersion.Version });
+            }
             pw = (string)(await cmd.ExecuteScalarAsync())!;
         }
         var cfg = new Config { Device = device, Host = host, Port = port, Database = db, Ssl = ssl };
