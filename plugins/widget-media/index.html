@@ -1,12 +1,14 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <style>
-  body { margin:0; padding:6px 12px; font: 12px/1.4 "Segoe UI Variable", "Segoe UI", sans-serif; color:#ddd; background:transparent; }
+  :root { --fg:#ddd; --mute:#888; --dur:#aaa; --bar-fg:#000; --line:#2a2a2a; color-scheme: dark; }
+  :root[data-theme="light"] { --fg:#1c1c1e; --mute:#6b6b70; --dur:#555; --line:#dcdce0; color-scheme: light; }
+  body { margin:0; padding:6px 12px; font: 12px/1.4 "Segoe UI Variable", "Segoe UI", sans-serif; color:var(--fg); background:transparent; }
   table { border-collapse:collapse; width:100%; }
   td { padding:2px 6px 2px 0; vertical-align:top; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:220px; }
-  td.t { color:#888; font-variant-numeric: tabular-nums; }
-  td.a { color:#aaa; }
-  .mute { color:#666; }
+  td.t { color:var(--mute); font-variant-numeric: tabular-nums; }
+  td.a { color:var(--dur); }
+  .mute { color:var(--mute); }
 </style></head>
 <body><div id="root" class="mute">불러오는 중…</div>
 <script src="https://app.lifelog/sdk.js"></script>

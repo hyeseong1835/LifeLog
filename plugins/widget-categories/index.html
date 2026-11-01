@@ -1,51 +1,51 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <style>
-  body { margin:0; padding:6px 12px 8px; font: 12px/1.4 "Segoe UI Variable", "Segoe UI", sans-serif; color:#ddd; background:transparent; }
-  .tabs { display:flex; gap:4px; margin-bottom:6px; }
-  .tabs button { background:#222; color:#aaa; border:1px solid #333; border-radius:10px; padding:2px 10px; cursor:pointer; font-size:11px; }
-  .tabs button.on { background:#2a3f55; color:#ddd; border-color:#6cf; }
+  :root { --fg:#ddd; --mute:#888; --dur:#aaa; --bar-fg:#000; color-scheme: dark; }
+  :root[data-theme="light"] { --fg:#1c1c1e; --mute:#6b6b70; --dur:#555; color-scheme: light; }
+  body { margin:0; padding:6px 12px 8px; font: 12px/1.4 "Segoe UI Variable", "Segoe UI", sans-serif; color:var(--fg); background:transparent; }
   .row { display:grid; grid-template-columns: 1fr 70px; align-items:center; gap:8px; margin:3px 0; }
-  .bar { height:16px; border-radius:3px; display:flex; align-items:center; padding:0 5px; color:#000; font-size:11px; white-space:nowrap; overflow:hidden; min-width:2px; }
-  .dur { text-align:right; color:#aaa; font-variant-numeric: tabular-nums; }
-  .mute { color:#666; }
+  .bar { height:16px; border-radius:3px; display:flex; align-items:center; padding:0 5px; color:var(--bar-fg); font-size:11px; white-space:nowrap; overflow:hidden; min-width:2px; }
+  .dur { text-align:right; color:var(--dur); font-variant-numeric: tabular-nums; }
+  .mute { color:var(--mute); }
+  .src { display:inline-block; margin-left:4px; font-size:10px; opacity:.7; }
 </style></head>
-<body><div class="tabs"><button id="tabPc">컴퓨터</button><button id="tabPh">휴대폰</button></div><div id="root" class="mute">불러오는 중…</div>
+<body><div id="root" class="mute">불러오는 중…</div>
 <script src="https://app.lifelog/sdk.js"></script>
 <script>
-// 분류별 시간. 컴퓨터 페이지는 창(app·title) 규칙, 휴대폰 페이지는 package 규칙. 규칙은 대시보드 설정(categories, phone_categories).
+// 분류별 시간. 설정 devices로 포함할 기기를 고른다(비우면 전부). 기기마다 데이터 종류에 맞는 규칙을 쓴다:
+// 창 기록(win-window)이 있는 기기는 컴퓨터 규칙(app·title), 앱 기록(phone-app)이 있는 기기는 휴대폰 규칙(package). 결과는 한 목록으로 합친다.
 const S = LifeLogSdk;
 async function q(view, opts) { try { return (await lifelog.query(view, opts)).rows; } catch (e) { return []; } }
-let page = "computer", data = null, limit = 12;
-function draw() {
+lifelog.ready(async (range, widget) => {
+  const st = widget.settings || {}; const limit = Number(st.limit) || 12;
+  const devices = Array.isArray(st.devices) ? st.devices : [];
+  const include = d => devices.length === 0 || devices.includes(d);
   const root = document.getElementById("root");
-  document.getElementById("tabPc").classList.toggle("on", page === "computer");
-  document.getElementById("tabPh").classList.toggle("on", page === "phone");
-  if (!data) return;
-  const { rows, rules, settingsName } = page === "computer" ? data.pc : data.ph;
-  if (rows.length === 0) { root.className = "mute"; root.innerHTML = "기록 없음"; return; }
-  if (rules.length === 0) { root.className = "mute"; root.innerHTML = `분류 규칙이 없습니다. 설정 › ${settingsName}에서 추가하세요.`; return; }
-  const sums = new Map();   // "개발/코딩"이면 "개발"에도 합산
-  for (const r of rows) {
-    const name = (page === "computer" ? S.matchRules(rules, r.app, r.title) : S.matchRules(rules, r.package, "")) || "기타";
-    const parts = name.split("/");
-    for (let i = 1; i <= parts.length; i++) { const k = parts.slice(0, i).join("/"); sums.set(k, (sums.get(k) || 0) + (r.e - r.s)); }
+  const [win, afk, app, settings] = await Promise.all([q("win-window/window", { range, limit: 20000 }), q("win-afk/afk", { range, limit: 5000 }), q("phone-app/app", { range, limit: 20000 }), lifelog.settings()]);
+  const pcRules = settings.categories || [], phRules = settings.phone_categories || [];
+  const sums = new Map(); let n = 0, missingRules = [];
+  const add = (name, ms) => { const parts = name.split("/"); for (let i = 1; i <= parts.length; i++) { const k = parts.slice(0, i).join("/"); sums.set(k, (sums.get(k) || 0) + ms); } };
+  // 컴퓨터: 기기별로 창 − 자리 비움
+  const pcDevices = [...new Set(win.map(r => r.device))].filter(include);
+  for (const d of pcDevices) {
+    const rows = S.activeWindows(win.filter(r => r.device === d), afk.filter(r => r.device === d), range);
+    if (rows.length && pcRules.length === 0) missingRules.push("컴퓨터");
+    for (const r of rows) { add(S.matchRules(pcRules, r.app, r.title) || "기타", r.e - r.s); n++; }
   }
+  // 휴대폰: 앱 구간
+  const phDevices = [...new Set(app.map(r => r.device))].filter(include);
+  for (const d of phDevices) {
+    const rows = S.clip(app.filter(r => r.device === d), range.start, range.end);
+    if (rows.length && phRules.length === 0) missingRules.push("휴대폰");
+    for (const r of rows) { add(S.matchRules(phRules, r.package, "") || "기타", r.e - r.s); n++; }
+  }
+  if (n === 0) { root.className = "mute"; root.innerHTML = "기록 없음" + (devices.length ? ` (${devices.join(", ")})` : ""); return; }
   const groups = [...sums.entries()].map(([key, ms]) => ({ key, ms })).sort((a, b) => b.ms - a.ms);
   const max = groups[0].ms;
   root.className = "";
   root.innerHTML = groups.slice(0, limit).map(g => `<div class="row" title="${S.esc(g.key)}">
-    <div class="bar" style="width:${Math.max(2, g.ms / max * 100)}%;background:${S.hashColor(g.key.split("/")[0])};padding-left:${5 + (g.key.split("/").length - 1) * 10}px">${S.esc(g.key)}</div><div class="dur">${S.fmtDur(g.ms)}</div></div>`).join("");
-}
-document.getElementById("tabPc").onclick = () => { page = "computer"; draw(); };
-document.getElementById("tabPh").onclick = () => { page = "phone"; draw(); };
-lifelog.ready(async (range, widget) => {
-  const st = widget.settings || {}; limit = Number(st.limit) || 12; page = st.page === "phone" ? "phone" : "computer";
-  const [win, afk, app, settings] = await Promise.all([q("win-window/window", { range, limit: 20000 }), q("win-afk/afk", { range, limit: 5000 }), q("phone-app/app", { range, limit: 20000 }), lifelog.settings()]);
-  data = {
-    pc: { rows: S.activeWindows(win, afk, range), rules: settings.categories || [], settingsName: "컴퓨터 분류 규칙" },
-    ph: { rows: S.clip(app, range.start, range.end), rules: settings.phone_categories || [], settingsName: "휴대폰 분류 규칙" },
-  };
-  draw();
+    <div class="bar" style="width:${Math.max(2, g.ms / max * 100)}%;background:${S.hashColor(g.key.split("/")[0])};padding-left:${5 + (g.key.split("/").length - 1) * 10}px">${S.esc(g.key)}</div><div class="dur">${S.fmtDur(g.ms)}</div></div>`).join("") +
+    `<div class="mute" style="margin-top:6px">${[...pcDevices, ...phDevices].join(", ")}${missingRules.length ? ` · ${[...new Set(missingRules)].join("·")} 규칙 없음(설정)` : ""}</div>`;
 });
 </script></body></html>

@@ -62,13 +62,16 @@
       const d = e.data;
       if (d && d.lifelog === "reply") settle(d.reply);
       if (d && d.lifelog === "range") { current.range = d.range; listeners.forEach(fn => fn(d.range)); }
-      if (d && d.lifelog === "theme") { current.theme = d.theme; }
+      if (d && d.lifelog === "theme") { current.theme = d.theme; setTheme(d.theme); themeListeners.forEach(fn => fn(d.theme)); }
       if (d && d.lifelog === "widget") { current.widget = d.widget; widgetListeners.forEach(fn => fn(d.widget)); }
     });
   }
 
-  const listeners = [], widgetListeners = [];
+  const listeners = [], widgetListeners = [], themeListeners = [];
   const current = { range: null, widget: null, theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light" };
+  // 이 스크립트는 문서가 만들어지는 순간 실행되므로 documentElement가 아직 없을 수 있다
+  const setTheme = t => { if (document.documentElement) document.documentElement.dataset.theme = t; };
+  if (!isTop) document.addEventListener("DOMContentLoaded", () => setTheme(current.theme));
 
   window.lifelog = {
     id: pluginId,
@@ -86,6 +89,7 @@
     get theme() { return current.theme; },
     /** 위젯 인스턴스 정보 { id, w, h, settings }. 셸이 iframe에 준다. */
     get widget() { return current.widget; },
+    onThemeChange(fn) { themeListeners.push(fn); fn(current.theme); },
     onWidgetChange(fn) { widgetListeners.push(fn); if (current.widget) fn(current.widget); },
     /** 범위와 위젯 설정이 둘 다 준비됐을 때 한 번, 이후 바뀔 때마다 부른다 */
     ready(fn) { const go = () => { if (current.range) fn(current.range, current.widget || { settings: {} }); }; listeners.push(go); widgetListeners.push(go); go(); },

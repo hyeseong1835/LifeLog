@@ -1,15 +1,17 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <style>
-  body { margin:0; padding:8px 12px; font: 11px/1.3 "Segoe UI Variable", "Segoe UI", sans-serif; color:#ddd; background:transparent; }
+  :root { --fg:#ddd; --mute:#888; --dur:#aaa; --bar-fg:#000; --line:#2a2a2a; color-scheme: dark; }
+  :root[data-theme="light"] { --fg:#1c1c1e; --mute:#6b6b70; --dur:#555; --line:#dcdce0; color-scheme: light; }
+  body { margin:0; padding:8px 12px; font: 11px/1.3 "Segoe UI Variable", "Segoe UI", sans-serif; color:var(--fg); background:transparent; }
   .chart { display:grid; grid-template-columns: repeat(24, 1fr); gap:3px; align-items:end; height:180px; }
   .col { display:flex; flex-direction:column; justify-content:flex-end; height:100%; }
   .pc { background:#6cf; border-radius:2px 2px 0 0; }
   .ph { background:#c9f; border-radius:2px 2px 0 0; }
-  .labels { display:grid; grid-template-columns: repeat(24, 1fr); color:#666; text-align:center; margin-top:4px; }
-  .legend { color:#888; margin-top:6px; }
+  .labels { display:grid; grid-template-columns: repeat(24, 1fr); color:var(--mute); text-align:center; margin-top:4px; }
+  .legend { color:var(--mute); margin-top:6px; }
   .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin:0 4px 0 8px; vertical-align:middle; }
-  .mute { color:#666; }
+  .mute { color:var(--mute); }
 </style></head>
 <body><div id="root" class="mute">불러오는 중…</div>
 <script src="https://app.lifelog/sdk.js"></script>

@@ -1,10 +1,18 @@
 {
   "type": "renderer",
   "id": "widget-summary",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "요약",
   "min_host_version": 1,
-  "runtimes": { "webview": "index.html" },
+  "runtimes": {
+    "webview": "index.html"
+  },
   "slot": "card",
-  "inputs": ["win-window/window@1", "win-afk/afk@1", "win-input/input@1", "health/span@1", "phone-screen/screen@1"]
+  "inputs": [
+    "win-window/window@1",
+    "win-afk/afk@1",
+    "win-input/input@1",
+    "health/span@1",
+    "phone-screen/screen@1"
+  ]
 }

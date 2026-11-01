@@ -57,6 +57,7 @@ public sealed class Bridge
         o["views"] ??= new JsonArray();
         o["categories"] ??= new JsonArray();
         o["phone_categories"] ??= new JsonArray();
+        o["theme"] ??= "system";
         return o;
     }
 

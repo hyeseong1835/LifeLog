@@ -1,11 +1,13 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <style>
-  body { margin:0; padding:8px 12px; font: 12px/1.4 "Segoe UI Variable", "Segoe UI", sans-serif; color:#ddd; background:transparent; }
+  :root { --fg:#ddd; --mute:#888; --dur:#aaa; --bar-fg:#000; --line:#2a2a2a; color-scheme: dark; }
+  :root[data-theme="light"] { --fg:#1c1c1e; --mute:#6b6b70; --dur:#555; --line:#dcdce0; color-scheme: light; }
+  body { margin:0; padding:8px 12px; font: 12px/1.4 "Segoe UI Variable", "Segoe UI", sans-serif; color:var(--fg); background:transparent; }
   .row { display:grid; grid-template-columns: 1fr 70px; align-items:center; gap:8px; margin:3px 0; }
-  .bar { height:16px; border-radius:3px; display:flex; align-items:center; padding:0 5px; color:#000; font-size:11px; white-space:nowrap; overflow:hidden; min-width:2px; }
-  .dur { text-align:right; color:#aaa; font-variant-numeric: tabular-nums; }
-  .mute { color:#666; }
+  .bar { height:16px; border-radius:3px; display:flex; align-items:center; padding:0 5px; color:var(--bar-fg); font-size:11px; white-space:nowrap; overflow:hidden; min-width:2px; }
+  .dur { text-align:right; color:var(--dur); font-variant-numeric: tabular-nums; }
+  .mute { color:var(--mute); }
 </style></head>
 <body><div id="root" class="mute">불러오는 중…</div>
 <script src="https://app.lifelog/sdk.js"></script>
