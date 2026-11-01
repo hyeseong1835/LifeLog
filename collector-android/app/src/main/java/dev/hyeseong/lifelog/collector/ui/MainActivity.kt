@@ -80,7 +80,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     lines
-                } catch (e: Exception) { listOf("상태 조회 실패: ${e.message}") }
+                } catch (e: Throwable) { listOf("상태 조회 실패: ${e.message}") }
             }
         }
         LaunchedEffect(Unit) { refresh() }
@@ -101,7 +101,7 @@ class MainActivity : ComponentActivity() {
                 if (password.isNotEmpty()) cfg.password = password
                 password = ""
                 scope.launch {
-                    msg = withContext(Dispatchers.IO) { try { Db(cfg).use { "연결 확인: 스키마 버전 ${it.schemaVersion()}" } } catch (e: Exception) { "연결 실패: ${e.message}" } }
+                    msg = withContext(Dispatchers.IO) { try { Db(cfg).use { "연결 확인: 스키마 버전 ${it.schemaVersion()}" } } catch (e: Throwable) { "연결 실패: ${e.message}" } }
                     refresh()
                 }
             }) { Text("저장하고 연결 확인") }
@@ -132,7 +132,7 @@ class MainActivity : ComponentActivity() {
                                 }
                                 "플러그인 ${n}개 등록·켬(권한 전부 허용)"
                             }
-                        } catch (e: Exception) { "등록 실패: ${e.message}" }
+                        } catch (e: Throwable) { "등록 실패: ${e.message}" }
                     }
                     refresh()
                 }

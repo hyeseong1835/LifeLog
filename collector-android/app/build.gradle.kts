@@ -42,6 +42,6 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
-    implementation("org.postgresql:postgresql:42.7.7")      // Postgres 직접 연결(설계: PostgREST 안 씀)
+    implementation("org.postgresql:postgresql:42.2.8")      // Postgres 직접 연결. 42.2.9+는 maxResultBuffer 파서가 java.lang.management를 써서 Android에서 못 붙는다
     implementation("app.cash.quickjs:quickjs-android:0.9.2") // JS 수집기 런타임
 }
