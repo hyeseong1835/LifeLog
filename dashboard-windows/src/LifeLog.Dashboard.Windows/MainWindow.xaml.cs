@@ -77,7 +77,7 @@ public partial class MainWindow : Window
             }
             // 개발용: --offset N → N일 전 하루를 연다
             var oi = Array.IndexOf(args, "--offset");
-            var url = "https://app.lifelog/index.html" + (oi >= 0 && oi + 1 < args.Length ? "?offset=" + Uri.EscapeDataString(args[oi + 1]) : "");
+            var url = "https://app.lifelog/index.html" + (oi >= 0 && oi + 1 < args.Length ? "?offset=" + Uri.EscapeDataString(args[oi + 1]) : "?offset=0") + (args.Contains("--edit") ? "&edit=1" : "");
             core.Navigate(url);
         }
         catch (Exception e)

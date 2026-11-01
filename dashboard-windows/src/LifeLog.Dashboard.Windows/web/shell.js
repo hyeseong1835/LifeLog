@@ -7,7 +7,8 @@ let dayOffset = Number(new URLSearchParams(location.search).get("offset")) || 0;
 let outputs = [];
 let renderers = [];
 let viewId = null;
-let editing = false;
+let editing = new URLSearchParams(location.search).get("edit") === "1";   // ?edit=1은 개발용
+
 let range = null;
 
 const DEFAULT_VIEWS = [
@@ -92,6 +93,7 @@ function widgetTitle(w) {
 
 async function load() {
   const main = $("#main");
+  resizeObservers.splice(0).forEach(o => o.disconnect());   // 이전 카드의 관찰자는 끊는다
   const { start, end } = dayRange(dayOffset);
   range = { start: start.toISOString(), end: end.toISOString() };
   $("#date").textContent = `${fmtDate(start)} ${fmtTime(start)} ~ ${fmtTime(end)}`;
@@ -145,26 +147,32 @@ async function load() {
   window.lifelog._broadcastRange(range);
 }
 
-/** 편집 모드: 카드 모서리를 끌어 크기를 바꾼다. 놓으면 너비는 열 수(1~3)로, 높이는 px로 저장한다. */
+/** 편집 모드: 카드 모서리를 끌어 크기를 바꾼다. 놓으면 너비는 열 수(1~3)로, 높이는 px로 저장한다.
+ * 다시 그리지 않고 카드 스타일만 바꾼다(다시 그리면 iframe이 전부 다시 읽는다). 카드가 DOM에서 빠지거나 0×0이면 무시한다. */
+const resizeObservers = [];
 function attachResize(card, view, w) {
   card.classList.add("resizable");
-  let timer = null, last = null;
+  let timer = null, last = null, first = null;
   const ro = new ResizeObserver(entries => {
-    const r = entries[0].contentRect; last = { width: r.width, height: r.height };
-    clearTimeout(timer); timer = setTimeout(commit, 400);
+    const r = entries[0].contentRect;
+    if (!card.isConnected || r.width === 0 || r.height === 0) return;
+    if (first === null) { first = { width: r.width, height: r.height }; return; }   // 첫 측정은 레이아웃 결과
+    last = { width: r.width, height: r.height };
+    clearTimeout(timer); timer = setTimeout(commit, 300);
   });
   async function commit() {
-    if (!last) return;
-    const grid = card.parentElement; if (!grid) return;
-    const colW = (grid.clientWidth - 20) / 3;    // gap 10px × 2
+    if (!last || !card.isConnected || !card.parentElement) return;
+    const colW = (card.parentElement.clientWidth - 20) / 3;    // gap 10px × 2
     const cols = Math.min(3, Math.max(1, Math.round((last.width + 10) / (colW + 10))));
     const h = Math.max(120, Math.round(last.height));
     if (cols === (w.w || 1) && Math.abs(h - (w.h || 0)) < 4) return;
-    ro.disconnect();
     w.w = cols; w.h = h;
-    await saveSettings(); load();
+    card.style.width = "";                         // 끌어서 생긴 px 너비는 버리고 열 수로
+    card.style.gridColumn = `span ${cols}`;
+    card.style.height = h + "px";
+    await saveSettings();
   }
-  requestAnimationFrame(() => ro.observe(card));   // 첫 레이아웃은 건너뛴다
+  ro.observe(card); resizeObservers.push(ro);
 }
 
 async function widgetAction(view, i, act) {
