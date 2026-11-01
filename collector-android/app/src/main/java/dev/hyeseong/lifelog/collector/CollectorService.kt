@@ -57,7 +57,7 @@ class CollectorService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (running) return START_STICKY
+        if (running) { log(this, "이미 실행 중, 시작 요청 무시"); return START_STICKY }
         // 포그라운드 종류는 실제로 허용된 런타임 권한에 맞춘다(없는 권한의 종류를 쓰면 SecurityException)
         fun granted(p: String) = checkSelfPermission(p) == android.content.pm.PackageManager.PERMISSION_GRANTED
         var type = 0
@@ -152,9 +152,9 @@ class CollectorService : Service() {
             done.countDown()
         }
         done.await(5, java.util.concurrent.TimeUnit.SECONDS)
-        // 큐를 한 번 비워 보고 끝낸다
+        // 진행 중인 전송 배치가 끝나길 기다린 뒤 업로더를 멈춘다(DB를 먼저 닫으면 "connection closed"로 실패 로그가 남는다)
         try { Thread.sleep(1000) } catch (_: Exception) {}
-        uploadJob?.cancel()
+        uploadJob?.let { j: Job -> j.cancel(); kotlinx.coroutines.runBlocking { kotlinx.coroutines.withTimeoutOrNull<Unit>(4000) { j.join() } } }
         if (::queue.isInitialized) { log(this, "종료. 큐 남은 건수 ${queue.count()}"); queue.close() }
         if (::db.isInitialized) db.close()
         thread.quitSafely()

@@ -10,7 +10,7 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
         val cfg = try { Config(context) } catch (e: Exception) { CollectorService.log(context, "부팅 자동 시작: 설정을 못 읽음 $e"); return }
-        if (!cfg.autostart || !cfg.isComplete) return
+        if (!cfg.autostart || !cfg.isComplete) { CollectorService.log(context, "부팅: 자동 시작 꺼짐(autostart=${cfg.autostart}, 설정=${cfg.isComplete}), 건너뜀"); return }
         try {
             context.startForegroundService(Intent(context, CollectorService::class.java))
             CollectorService.log(context, "부팅 자동 시작")
