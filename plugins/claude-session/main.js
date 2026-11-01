@@ -1,6 +1,9 @@
-// Claude Code 세션 수집기. ~/.claude/projects/<프로젝트>/<세션>.jsonl을 2분마다 이어 읽어 세션 하나를 구간 하나로 둔다.
+// Claude Code 세션 수집기. ~/.claude/projects/<프로젝트>/<세션>.jsonl을 이어 읽어 세션 하나를 구간 하나로 둔다.
 // 구간 = 첫 메시지 ~ 마지막 메시지. turns = 사람이 보낸 메시지 수(도구 결과 제외). 내용은 읽지 않고 시각·cwd·브랜치만 본다.
 // 파일별 읽은 위치를 상태에 두어 다시 읽지 않는다. 행 id는 세션 id로 고정(key)이라 갱신은 덮어쓴다.
+// 한 번에 BUDGET 바이트만 읽고 나머지는 다음 주기로 넘긴다(JS 엔진 메모리 상한 안에서 돌기 위해). 밀린 양이 많으면 몇 분 걸린다.
+const BUDGET = 2 * 1024 * 1024, CHUNK = 1024 * 1024;
+const WANT = /"type":\s*"(user|assistant)"/;
 function isTurn(o) {
   if (o.type !== "user" || !o.message) return false;
   const c = o.message.content;
@@ -13,19 +16,20 @@ export default {
     const root = ctx.settings.root || "~/.claude/projects";
     const scan = () => {
       const st = ctx.state.get("files") || {};
-      let changed = 0, parsed = 0;
+      let changed = 0, used = 0, pending = false;
       for (const d of ctx.file.list(root, "*")) {
         if (!d.dir) continue;
         for (const f of ctx.file.list(d.path, "*.jsonl")) {     // 하위 폴더(서브에이전트)는 보지 않는다
           const s = st[f.path] || { next: 0, turns: 0 };
           if (f.size <= s.next) continue;
+          if (used >= BUDGET) { pending = true; continue; }
           let next = s.next;
-          while (next < f.size) {
-            const r = ctx.file.read(f.path, { from: next });
+          while (next < f.size && used < BUDGET) {
+            const r = ctx.file.read(f.path, { from: next, max: CHUNK });
+            used += r.next - next;
             for (const line of r.text.split("\n")) {
-              if (!line) continue;
+              if (!line || !WANT.test(line)) continue;
               let o; try { o = JSON.parse(line); } catch (e) { continue; }
-              parsed++;
               if (!o.timestamp || (o.type !== "user" && o.type !== "assistant")) continue;
               if (!s.start) { s.start = o.timestamp; s.id = o.sessionId; s.version = o.version; }
               s.end = o.timestamp;
@@ -36,6 +40,7 @@ export default {
             if (r.next <= next) break;
             next = r.next;
           }
+          if (next < f.size) pending = true;
           s.next = next; st[f.path] = s;
           if (s.start && s.id) {
             ctx.span.put("session", { start: s.start, end: s.end, session_id: s.id, project: s.cwd || "", branch: s.branch || "", turns: s.turns, version: s.version || "" }, { key: s.id });
@@ -44,9 +49,9 @@ export default {
         }
       }
       ctx.state.set("files", st);
-      if (changed) ctx.log("info", "세션 " + changed + "개 갱신 (" + parsed + "줄)");
+      if (changed) ctx.log("info", "세션 " + changed + "개 갱신, " + Math.round(used / 1024) + "KB 읽음" + (pending ? " (남은 파일은 다음 주기에)" : ""));
     };
-    ctx.every("2m", scan);
+    ctx.every("15s", scan);
     scan();
   },
   stop(ctx) {}
