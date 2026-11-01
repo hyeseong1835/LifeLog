@@ -9,6 +9,8 @@
     <AssemblyName>lifelog-collector</AssemblyName>
     <RootNamespace>LifeLog.Collector.Windows</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon></ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

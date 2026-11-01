@@ -25,7 +25,9 @@ dotnet build collector-windows
 EXE=collector-windows/src/LifeLog.Collector.Windows/bin/Debug/net10.0-windows10.0.19041.0/lifelog-collector.exe
 LIFELOG_ADMIN_DSN="Host=...;Port=...;Database=...;Username=...;Password=..." $EXE setup --device laptop --name 노트북 --host H --port P --database DB
 $EXE install plugins/win-window --grant-all      # 개발용: 권한 전부 허용하고 켬
-$EXE run
+$EXE run                 # 콘솔. 또는 run --tray (콘솔 숨김, 트레이 아이콘)
+$EXE stop                # 정상 종료(열린 구간 닫고 큐 비움)
+$EXE autostart on        # 로그온 시 `run --tray` (작업 스케줄러)
 ```
 - `setup`은 관리자 접속으로 `register_device`를 부르고 받은 비밀번호만 저장한다. 관리자 접속 문자열은 저장하지 않는다.
 - `install`은 폴더나 zip을 `plugins/<id>`로 복사하고 `register_plugin`을 부른다. `--grant-all`이 없으면 꺼진 채 설치되고 `enable <id>`로 켠다(지금은 권한 전부 허용. 항목별 허용 UI는 대시보드 몫).
@@ -35,6 +37,6 @@ $EXE run
 `plugins/win-window/main.js`가 가장 작은 예다. `export default { start(ctx), stop(ctx) }`. 행의 시각은 `Date`(소스 이벤트의 `ev.time`을 그대로 넘기면 된다). 선언되지 않은 열을 넣으면 거부된다. 핸들러 예외는 격리되고 연속 5회면 그 기기에서 꺼진다.
 
 ## 아직 없는 것
-- 트레이 아이콘·로그온 자동 실행(지금은 콘솔). 설치 화면의 권한 항목별 허용.
+- 설치 화면의 권한 항목별 허용(지금은 `--grant-all`/`enable`이 전부 허용).
 - GitHub URL 설치와 갱신 확인. Lua 런타임. JS 수집기용 원시 기능(`http`, `file`, `sqlite`, `process`, `registry`).
 - 소스 이벤트 버퍼(플러그인이 꺼졌다 켜질 때 재전달)와 자원 상한의 메모리 쪽(시간 상한은 있음).

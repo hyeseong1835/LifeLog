@@ -8,6 +8,7 @@ common.py          매니페스트 로드, 결정적 id(uuid5), 겹침 정책(me
 aw.py              ActivityWatch SQLite → win-window/window@1, win-afk/afk@1, win-media/media@1
 phone.py           폰 TSV → phone-app/app@1, phone-location/point@1, phone-media/media@1, health/point@1, health/span@1
 dry_run.py         원본을 읽어 건수·기간·표본·건너뜀을 출력. DB에 쓰지 않는다
+write.py           관리자 접속으로 기기·매니페스트를 등록하고 COPY → ON CONFLICT upsert로 넣는다. 재실행 안전
 ```
 
 ## 건조 실행
@@ -29,4 +30,4 @@ python -I tools/import/dry_run.py --aw PATH --phone DIR --samples 5
 - 폰 TSV 건강 줄의 하루 합계는 `category = "daily"`, 시간별 걸음은 `"hourly"`. 같은 metric이 00:00에 겹치지 않게 하기 위해서다.
 - 수면 세션(`sl`)이 자정을 넘기면 시작은 전날. 그 세션의 단계(`ss`)는 세션 시작 시각 이후 HH:mm이면 전날로 본다.
 - `phone-app.package`에는 TSV의 표시 이름을 넣는다(원본에 패키지가 없다).
-- 실제 쓰기(`COPY` + `ON CONFLICT (device, id) DO UPDATE`)는 첫 수집기 구현 뒤 매니페스트 v1을 등록한 다음에 만든다.
+- 쓰기: `python tools/import/write.py --dsn <관리자 DSN>`. 기기가 없으면 등록하고 비밀번호를 한 번 출력한다. 폰 앱은 나중에 `reset_device_password('phone')`로 비밀번호를 받는다.

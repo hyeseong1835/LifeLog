@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Text.Json;
 using LifeLog.Core;
@@ -17,9 +18,17 @@ static class Cli
           install <플러그인 폴더 또는 zip> [--grant-all]
                   plugins/<id>로 복사하고 등록한다. --grant-all은 매니페스트의 권한을 전부 허용하고 켠다(개발용).
           enable <id> | disable <id>
-          run     수집 시작
+          run [--tray]   수집 시작. --tray면 콘솔을 숨기고 트레이 아이콘으로 돈다
+          stop           실행 중인 수집기를 정상 종료시킨다(열린 구간을 닫고 큐를 비운다)
+          autostart on|off   로그온 시 자동 실행(작업 스케줄러)
           status  설정·큐·플러그인 상태
+
+        로그: %LOCALAPPDATA%\LifeLog\collector\collector.log
         """;
+
+    const string StopEventName = @"Local\LifeLog.Collector.Stop";
+    const string MutexName = @"Local\LifeLog.Collector.Running";
+    const string TaskName = "LifeLogCollector";
 
     public static async Task<int> RunAsync(string[] args)
     {
@@ -32,7 +41,9 @@ static class Cli
                 case "install": return await InstallAsync(args[1..]);
                 case "enable": return await EnableAsync(args[1], true);
                 case "disable": return await EnableAsync(args[1], false);
-                case "run": return await RunHostAsync();
+                case "run": return await RunHostAsync(args.Contains("--tray"));
+                case "stop": return Stop();
+                case "autostart": return Autostart(args.Length > 1 && args[1] == "on");
                 case "status": return await StatusAsync();
                 default: Console.WriteLine(Usage); return 1;
             }
@@ -129,14 +140,48 @@ static class Cli
         return 0;
     }
 
-    static async Task<int> RunHostAsync()
+    static async Task<int> RunHostAsync(bool tray)
     {
         var cfg = Config.Load() ?? throw new InvalidOperationException("setup을 먼저 하세요");
+        using var single = new Mutex(true, MutexName, out var first);
+        if (!first) { Console.Error.WriteLine("이미 실행 중입니다. `stop`으로 끝내세요."); return 3; }
         using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+        using var stopEvent = new EventWaitHandle(false, EventResetMode.ManualReset, StopEventName);
+        ThreadPool.RegisterWaitForSingleObject(stopEvent, (_, _) => cts.Cancel(), null, -1, true);
         await using var host = new Host(cfg);
+        using var trayIcon = tray ? new Tray(() => host.Status, () => cts.Cancel()) : null;
+        trayIcon?.Start();
         await host.RunAsync(cts.Token);
         return 0;
+    }
+
+    static int Stop()
+    {
+        if (!EventWaitHandle.TryOpenExisting(StopEventName, out var ev)) { Console.WriteLine("실행 중인 수집기가 없습니다"); return 1; }
+        ev.Set();
+        // 뮤텍스가 풀릴 때까지(= 정상 종료) 기다린다
+        for (int i = 0; i < 60; i++)
+        {
+            if (!Mutex.TryOpenExisting(MutexName, out var m)) { Console.WriteLine("종료됨"); return 0; }
+            m.Dispose();
+            Thread.Sleep(500);
+        }
+        Console.WriteLine("30초 안에 끝나지 않았습니다. 로그를 보세요");
+        return 2;
+    }
+
+    static int Autostart(bool on)
+    {
+        var exe = Environment.ProcessPath ?? throw new InvalidOperationException("실행 파일 경로를 알 수 없습니다");
+        var psi = on
+            ? new ProcessStartInfo("schtasks", $"/create /f /tn {TaskName} /sc onlogon /rl limited /tr \"\\\"{exe}\\\" run --tray\"")
+            : new ProcessStartInfo("schtasks", $"/delete /f /tn {TaskName}");
+        psi.UseShellExecute = false;
+        using var p = Process.Start(psi)!;
+        p.WaitForExit();
+        Console.WriteLine(p.ExitCode == 0 ? (on ? $"로그온 시 자동 실행 등록: {exe} run --tray" : "자동 실행 해제") : $"schtasks 실패({p.ExitCode})");
+        return p.ExitCode;
     }
 
     static async Task<int> StatusAsync()

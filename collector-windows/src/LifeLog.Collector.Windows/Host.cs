@@ -31,7 +31,19 @@ public sealed class Host : IAsyncDisposable
         _uploader = new Uploader(Queue, Db, t => _tables.GetValueOrDefault(t), Log);
     }
 
-    public void Log(string msg) => Console.WriteLine($"{DateTime.Now:HH:mm:ss} {msg}");
+    public static string LogPath => Path.Combine(Config.Dir, "collector.log");
+    private static readonly object LogLock = new();
+    public string Status { get; private set; } = "시작 중";
+
+    public void Log(string msg)
+    {
+        var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {msg}";
+        Console.WriteLine(line);
+        lock (LogLock)
+        {
+            try { File.AppendAllText(LogPath, line + Environment.NewLine); } catch (IOException) { }
+        }
+    }
     public DateTimeOffset Now() => Db.Now();
 
     public async Task RunAsync(CancellationToken stop)
@@ -96,9 +108,11 @@ public sealed class Host : IAsyncDisposable
         _timers.Add(new System.Threading.Timer(_ => _ = Db.TouchLastSeenAsync(Config.Device), null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5)));
 
         var upload = _uploader.RunAsync(_cts.Token);
-        Log("수집 중. Ctrl+C로 끝냅니다.");
+        Status = $"수집 중 · 플러그인 {_plugins.Count}개 · 소스 {_sources.Count}개";
+        Log("수집 중. Ctrl+C 또는 `lifelog-collector stop`으로 끝냅니다.");
         try { await Task.Delay(Timeout.Infinite, stop); } catch (OperationCanceledException) { }
 
+        Status = "종료 중";
         Log("종료 중...");
         foreach (var s in _sources.Values) s.Dispose();
         Dispatcher.Invoke(() => { foreach (var p in _plugins) p.Stop(); Spans.CloseAll(Now()); });
@@ -107,6 +121,7 @@ public sealed class Host : IAsyncDisposable
         await Task.WhenAny(FlushAsync(), Task.Delay(TimeSpan.FromSeconds(10)));
         _cts.Cancel();
         try { await upload; } catch (OperationCanceledException) { }
+        Log($"종료. 큐 남은 건수 {Queue.Count()}");
     }
 
     private async Task FlushAsync()
