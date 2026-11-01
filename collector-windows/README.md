@@ -31,7 +31,7 @@ $EXE autostart on        # 로그온 시 `run --tray` (작업 스케줄러)
 ```
 - `setup`은 관리자 접속으로 `register_device`를 부르고 받은 비밀번호만 저장한다. 관리자 접속 문자열은 저장하지 않는다.
 - `install`은 폴더나 zip을 `plugins/<id>`로 복사하고 `register_plugin`을 부른다. `--grant-all`이 없으면 꺼진 채 설치되고 `enable <id>`로 켠다(지금은 권한 전부 허용. 항목별 허용 UI는 대시보드 몫).
-- `run`은 DB 코어 스키마 버전이 앱보다 높으면 쓰기를 거부한다.
+- `run`은 DB 코어 스키마 버전이 앱보다 높으면 쓰기를 거부한다. `autostart`는 HKCU Run 키를 쓴다(관리자 권한 불필요).
 
 ## 플러그인 작성
 `plugins/win-window/main.js`가 가장 작은 예다. `export default { start(ctx), stop(ctx) }`. 행의 시각은 `Date`(소스 이벤트의 `ev.time`을 그대로 넘기면 된다). 선언되지 않은 열을 넣으면 거부된다. 핸들러 예외는 격리되고 연속 5회면 그 기기에서 꺼진다.

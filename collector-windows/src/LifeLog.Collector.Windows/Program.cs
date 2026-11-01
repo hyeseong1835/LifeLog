@@ -22,7 +22,7 @@ static class Cli
           enable <id> | disable <id>
           run [--tray]   수집 시작. --tray면 콘솔을 숨기고 트레이 아이콘으로 돈다
           stop           실행 중인 수집기를 정상 종료시킨다(열린 구간을 닫고 큐를 비운다)
-          autostart on|off   로그온 시 자동 실행(작업 스케줄러)
+          autostart on|off   로그온 시 자동 실행(HKCU Run 키)
           status  설정·큐·플러그인 상태
 
         로그: %LOCALAPPDATA%\LifeLog\collector\collector.log
@@ -192,15 +192,12 @@ static class Cli
 
     static int Autostart(bool on)
     {
+        // 작업 스케줄러의 onlogon 트리거는 관리자 권한이 필요해 HKCU Run 키를 쓴다(사용자 권한으로 충분)
         var exe = Environment.ProcessPath ?? throw new InvalidOperationException("실행 파일 경로를 알 수 없습니다");
-        var psi = on
-            ? new ProcessStartInfo("schtasks", $"/create /f /tn {TaskName} /sc onlogon /rl limited /tr \"\\\"{exe}\\\" run --tray\"")
-            : new ProcessStartInfo("schtasks", $"/delete /f /tn {TaskName}");
-        psi.UseShellExecute = false;
-        using var p = Process.Start(psi)!;
-        p.WaitForExit();
-        Console.WriteLine(p.ExitCode == 0 ? (on ? $"로그온 시 자동 실행 등록: {exe} run --tray" : "자동 실행 해제") : $"schtasks 실패({p.ExitCode})");
-        return p.ExitCode;
+        using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true)!;
+        if (on) { key.SetValue(TaskName, $"\"{exe}\" run --tray"); Console.WriteLine($"로그온 시 자동 실행 등록(HKCU Run): {exe} run --tray"); }
+        else { key.DeleteValue(TaskName, false); Console.WriteLine("자동 실행 해제"); }
+        return 0;
     }
 
     static async Task<int> StatusAsync()
