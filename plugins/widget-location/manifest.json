@@ -1,0 +1,15 @@
+{
+  "type": "renderer",
+  "id": "widget-location",
+  "version": "1.0.0",
+  "name": "위치",
+  "min_host_version": 1,
+  "runtimes": { "webview": "index.html" },
+  "slot": "card",
+  "inputs": ["phone-location/point@1"],
+  "settings": [
+    { "key": "map", "type": "boolean", "default": true, "label": "배경 지도(OpenStreetMap 타일을 내려받음)" },
+    { "key": "path", "type": "boolean", "default": true, "label": "점을 선으로 잇기" },
+    { "key": "max_accuracy", "type": "number", "default": 500, "label": "이 정확도(m)보다 나쁜 점은 숨김" }
+  ]
+}

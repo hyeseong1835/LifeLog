@@ -51,6 +51,8 @@ public partial class MainWindow : Window
             await _bridge.MapPluginsAsync();
             await core.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(Path.Combine(webDir, "bridge.js")));
             core.WebMessageReceived += (_, e) => _ = _bridge.HandleAsync(e);
+            // 플러그인 iframe의 탐색 실패를 로그로(가상 호스트 매핑 문제 추적)
+            core.FrameCreated += (_, fe) => fe.Frame.NavigationCompleted += (_, ne) => { if (!ne.IsSuccess) Log($"iframe 탐색 실패: {ne.WebErrorStatus}"); };
             Log("WebView2 준비, 브리지 연결");
             Status.Visibility = Visibility.Collapsed;
             // 개발용: --screenshot 경로 → 로드 뒤 4초 후 캡처하고 종료
@@ -63,6 +65,10 @@ public partial class MainWindow : Window
                 {
                     var wi = Array.IndexOf(args, "--wait");
                     await Task.Delay(wi >= 0 && wi + 1 < args.Length ? int.Parse(args[wi + 1]) : 4000);
+                    // 진단: 매핑된 플러그인 호스트마다 manifest.json을 받아 본다
+                    var hosts = string.Join(",", Directory.GetDirectories(Bridge.PluginsDir).Select(d => "'" + Path.GetFileName(d) + "'"));
+                    await core.ExecuteScriptAsync($"(async()=>{{const out=[];for(const id of [{hosts}]){{try{{const r=await fetch('https://plugin-'+id+'.lifelog/manifest.json');out.push(id+':'+r.status)}}catch(e){{out.push(id+':ERR '+e.message)}}}}chrome.webview.postMessage({{id:'diag',from:'shell',method:'log',args:['플러그인 호스트 진단: '+out.join(' | ')]}})}})()");
+                    await Task.Delay(2000);
                     await using var fs = File.Create(path);
                     await core.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, fs);
                     Close();

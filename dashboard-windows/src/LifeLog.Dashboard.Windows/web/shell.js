@@ -18,6 +18,7 @@ const DEFAULT_VIEWS = [
     { id: "w4", type: "widget-categories", w: 1, settings: {} },
     { id: "w5", type: "widget-hourly", w: 2, settings: {} },
     { id: "w6", type: "widget-media", w: 1, settings: {} },
+    { id: "w7", type: "widget-location", w: 1, settings: {} },
   ] },
 ];
 
@@ -100,6 +101,8 @@ async function load() {
   const grid = document.createElement("div"); grid.className = "grid";
   view.widgets.forEach((w, i) => {
     const card = document.createElement("section"); card.className = "widget"; card.style.gridColumn = `span ${Math.min(3, Math.max(1, w.w || 1))}`;
+    if (w.h) card.style.height = w.h + "px";
+    if (editing) attachResize(card, view, w);
     const head = document.createElement("div"); head.className = "whead";
     head.innerHTML = `<span class="wtitle">${esc(widgetTitle(w))}</span>` + (editing ? `<span class="wtools">
         <button data-act="left" title="앞으로">◀</button><button data-act="right" title="뒤로">▶</button>
@@ -114,6 +117,7 @@ async function load() {
     if (!p) { body.innerHTML = `<div class="empty">설치되지 않은 위젯: ${esc(w.type)}</div>`; return; }
     if (!p.enabled) { body.innerHTML = `<div class="empty">꺼진 플러그인: ${esc(p.id)}</div>`; return; }
     const f = document.createElement("iframe"); f.src = p.entry; f.dataset.plugin = p.id; f.dataset.widget = w.id;
+    f.style.height = "100%";
     f.addEventListener("load", () => {
       f.contentWindow.postMessage({ lifelog: "widget", widget: { id: w.id, w: w.w || 1, h: w.h || 1, settings: w.settings || {} } }, "*");
       f.contentWindow.postMessage({ lifelog: "range", range }, "*");
@@ -139,6 +143,28 @@ async function load() {
   }
   main.innerHTML = ""; main.appendChild(grid);
   window.lifelog._broadcastRange(range);
+}
+
+/** 편집 모드: 카드 모서리를 끌어 크기를 바꾼다. 놓으면 너비는 열 수(1~3)로, 높이는 px로 저장한다. */
+function attachResize(card, view, w) {
+  card.classList.add("resizable");
+  let timer = null, last = null;
+  const ro = new ResizeObserver(entries => {
+    const r = entries[0].contentRect; last = { width: r.width, height: r.height };
+    clearTimeout(timer); timer = setTimeout(commit, 400);
+  });
+  async function commit() {
+    if (!last) return;
+    const grid = card.parentElement; if (!grid) return;
+    const colW = (grid.clientWidth - 20) / 3;    // gap 10px × 2
+    const cols = Math.min(3, Math.max(1, Math.round((last.width + 10) / (colW + 10))));
+    const h = Math.max(120, Math.round(last.height));
+    if (cols === (w.w || 1) && Math.abs(h - (w.h || 0)) < 4) return;
+    ro.disconnect();
+    w.w = cols; w.h = h;
+    await saveSettings(); load();
+  }
+  requestAnimationFrame(() => ro.observe(card));   // 첫 레이아웃은 건너뛴다
 }
 
 async function widgetAction(view, i, act) {
@@ -192,24 +218,32 @@ function renderTabs() {
   if (add) add.onclick = async () => { const n = prompt("새 뷰 이름"); if (!n) return; const v = { id: uid(), name: n, widgets: [] }; settings.views.push(v); viewId = v.id; await saveSettings(); load(); };
 }
 
-// ---- 설정 페이지(하루 시작·분류 규칙) ----
+// ---- 설정 페이지(하루 시작·분류 규칙: 컴퓨터용 app·title, 휴대폰용 package) ----
 function renderSettingsPage() {
   const page = $("#settingsPage");
-  const rules = settings.categories || [];
+  const pc = settings.categories || (settings.categories = []);
+  const ph = settings.phone_categories || (settings.phone_categories = []);
+  const table = (rules, kind, cols) => `<table class="rules" data-kind="${kind}"><thead><tr><th>이름</th>${cols.map(c => `<th>${esc(c[1])}</th>`).join("")}<th></th></tr></thead><tbody>
+    ${rules.map((r, i) => `<tr><td><input data-i="${i}" data-k="name" value="${esc(r.name)}"></td>${cols.map(c => `<td><input data-i="${i}" data-k="${c[0]}" value="${esc(r[c[0]] || "")}"></td>`).join("")}<td><button data-del="${i}">✕</button></td></tr>`).join("")}
+    </tbody></table><div class="row"><button data-add="${kind}">규칙 추가</button></div>`;
   page.innerHTML = `<h2>설정 (이 기기)</h2>
     <label>하루 시작 <input id="dayStart" value="${esc(settings.day_start)}" size="6"></label>
-    <h3>분류 규칙 <span class="mute">위에서부터 처음 맞는 규칙. 정규식, 대소문자 무시. 이름은 "개발/코딩"처럼 /로 계층</span></h3>
-    <table class="rules"><thead><tr><th>이름</th><th>app</th><th>title</th><th></th></tr></thead><tbody>
-    ${rules.map((r, i) => `<tr><td><input data-i="${i}" data-k="name" value="${esc(r.name)}"></td><td><input data-i="${i}" data-k="app" value="${esc(r.app || "")}"></td><td><input data-i="${i}" data-k="title" value="${esc(r.title || "")}"></td><td><button data-del="${i}">✕</button></td></tr>`).join("")}
-    </tbody></table>
-    <div class="row"><button id="addRule">규칙 추가</button><button id="saveRules">저장</button><span id="ruleMsg" class="mute"></span></div>`;
-  const collectRules = () => page.querySelectorAll("input[data-i]").forEach(el => { rules[Number(el.dataset.i)][el.dataset.k] = el.value; });
-  page.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { collectRules(); rules.splice(Number(b.dataset.del), 1); renderSettingsPage(); });
-  $("#addRule").onclick = () => { collectRules(); rules.push({ name: "", app: "", title: "" }); renderSettingsPage(); };
+    <h3>컴퓨터 분류 규칙 <span class="mute">위에서부터 처음 맞는 규칙. 정규식, 대소문자 무시. 이름은 "개발/코딩"처럼 /로 계층</span></h3>
+    ${table(pc, "pc", [["app", "app (exe 이름)"], ["title", "title (창 제목)"]])}
+    <h3>휴대폰 분류 규칙 <span class="mute">package 이름으로 맞춘다(예: com.google.android.youtube)</span></h3>
+    ${table(ph, "ph", [["app", "package"]])}
+    <div class="row"><button id="saveRules">저장</button><span id="ruleMsg" class="mute"></span></div>`;
+  const collect = () => page.querySelectorAll("table.rules").forEach(t => {
+    const rules = t.dataset.kind === "pc" ? pc : ph;
+    t.querySelectorAll("input[data-i]").forEach(el => { rules[Number(el.dataset.i)][el.dataset.k] = el.value; });
+  });
+  page.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { collect(); (b.closest("table").dataset.kind === "pc" ? pc : ph).splice(Number(b.dataset.del), 1); renderSettingsPage(); });
+  page.querySelectorAll("[data-add]").forEach(b => b.onclick = () => { collect(); (b.dataset.add === "pc" ? pc : ph).push({ name: "", app: "", title: "" }); renderSettingsPage(); });
   $("#saveRules").onclick = async () => {
-    collectRules();
+    collect();
     settings.day_start = $("#dayStart").value.trim() || "04:00";
-    settings.categories = rules.filter(r => r.name);
+    settings.categories = pc.filter(r => r.name);
+    settings.phone_categories = ph.filter(r => r.name);
     await saveSettings(); $("#ruleMsg").textContent = "저장됨"; load();
   };
 }
@@ -219,6 +253,7 @@ async function init() {
     settings = Object.assign(settings, await lifelog.settings());
     if (!Array.isArray(settings.views) || settings.views.length === 0) { settings.views = JSON.parse(JSON.stringify(DEFAULT_VIEWS)); await saveSettings(); }
     if (!Array.isArray(settings.categories)) settings.categories = [];
+    if (!Array.isArray(settings.phone_categories)) settings.phone_categories = [];
     if (!viewId) viewId = settings.views[0].id;
     outputs = await lifelog.outputs();
     renderers = await lifelog.renderers();

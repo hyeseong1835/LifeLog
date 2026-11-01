@@ -1,13 +1,14 @@
 {
   "type": "renderer",
   "id": "widget-categories",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "분류별 시간",
   "min_host_version": 1,
   "runtimes": { "webview": "index.html" },
   "slot": "card",
-  "inputs": ["win-window/window@1", "win-afk/afk@1"],
+  "inputs": ["win-window/window@1", "win-afk/afk@1", "phone-app/app@1"],
   "settings": [
-    { "key": "limit", "type": "number", "default": 12, "label": "표시 개수" }
+    { "key": "limit", "type": "number", "default": 12, "label": "표시 개수" },
+    { "key": "page", "type": "enum", "options": ["computer", "phone"], "default": "computer", "label": "처음 보일 페이지" }
   ]
 }

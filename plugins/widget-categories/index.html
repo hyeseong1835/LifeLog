@@ -1,29 +1,33 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <style>
-  body { margin:0; padding:8px 12px; font: 12px/1.4 "Segoe UI Variable", "Segoe UI", sans-serif; color:#ddd; background:transparent; }
+  body { margin:0; padding:6px 12px 8px; font: 12px/1.4 "Segoe UI Variable", "Segoe UI", sans-serif; color:#ddd; background:transparent; }
+  .tabs { display:flex; gap:4px; margin-bottom:6px; }
+  .tabs button { background:#222; color:#aaa; border:1px solid #333; border-radius:10px; padding:2px 10px; cursor:pointer; font-size:11px; }
+  .tabs button.on { background:#2a3f55; color:#ddd; border-color:#6cf; }
   .row { display:grid; grid-template-columns: 1fr 70px; align-items:center; gap:8px; margin:3px 0; }
   .bar { height:16px; border-radius:3px; display:flex; align-items:center; padding:0 5px; color:#000; font-size:11px; white-space:nowrap; overflow:hidden; min-width:2px; }
   .dur { text-align:right; color:#aaa; font-variant-numeric: tabular-nums; }
   .mute { color:#666; }
 </style></head>
-<body><div id="root" class="mute">불러오는 중…</div>
+<body><div class="tabs"><button id="tabPc">컴퓨터</button><button id="tabPh">휴대폰</button></div><div id="root" class="mute">불러오는 중…</div>
 <script src="https://app.lifelog/sdk.js"></script>
 <script>
+// 분류별 시간. 컴퓨터 페이지는 창(app·title) 규칙, 휴대폰 페이지는 package 규칙. 규칙은 대시보드 설정(categories, phone_categories).
 const S = LifeLogSdk;
 async function q(view, opts) { try { return (await lifelog.query(view, opts)).rows; } catch (e) { return []; } }
-lifelog.ready(async (range, widget) => {
-  const limit = Number((widget.settings || {}).limit) || 12;
+let page = "computer", data = null, limit = 12;
+function draw() {
   const root = document.getElementById("root");
-  const [win, afk, settings] = await Promise.all([q("win-window/window", { range, limit: 20000 }), q("win-afk/afk", { range, limit: 5000 }), lifelog.settings()]);
-  const rules = settings.categories || [];
-  const rows = S.activeWindows(win, afk, range);
-  if (rows.length === 0) { root.innerHTML = '<span class="mute">기록 없음</span>'; return; }
-  if (rules.length === 0) { root.innerHTML = '<span class="mute">분류 규칙이 없습니다. 설정에서 추가하세요.</span>'; return; }
-  // 규칙 이름이 "개발/코딩"이면 "개발"에도 합산한다(상위 분류)
-  const sums = new Map();
+  document.getElementById("tabPc").classList.toggle("on", page === "computer");
+  document.getElementById("tabPh").classList.toggle("on", page === "phone");
+  if (!data) return;
+  const { rows, rules, settingsName } = page === "computer" ? data.pc : data.ph;
+  if (rows.length === 0) { root.className = "mute"; root.innerHTML = "기록 없음"; return; }
+  if (rules.length === 0) { root.className = "mute"; root.innerHTML = `분류 규칙이 없습니다. 설정 › ${settingsName}에서 추가하세요.`; return; }
+  const sums = new Map();   // "개발/코딩"이면 "개발"에도 합산
   for (const r of rows) {
-    const name = S.matchRules(rules, r.app, r.title) || "기타";
+    const name = (page === "computer" ? S.matchRules(rules, r.app, r.title) : S.matchRules(rules, r.package, "")) || "기타";
     const parts = name.split("/");
     for (let i = 1; i <= parts.length; i++) { const k = parts.slice(0, i).join("/"); sums.set(k, (sums.get(k) || 0) + (r.e - r.s)); }
   }
@@ -32,5 +36,16 @@ lifelog.ready(async (range, widget) => {
   root.className = "";
   root.innerHTML = groups.slice(0, limit).map(g => `<div class="row" title="${S.esc(g.key)}">
     <div class="bar" style="width:${Math.max(2, g.ms / max * 100)}%;background:${S.hashColor(g.key.split("/")[0])};padding-left:${5 + (g.key.split("/").length - 1) * 10}px">${S.esc(g.key)}</div><div class="dur">${S.fmtDur(g.ms)}</div></div>`).join("");
+}
+document.getElementById("tabPc").onclick = () => { page = "computer"; draw(); };
+document.getElementById("tabPh").onclick = () => { page = "phone"; draw(); };
+lifelog.ready(async (range, widget) => {
+  const st = widget.settings || {}; limit = Number(st.limit) || 12; page = st.page === "phone" ? "phone" : "computer";
+  const [win, afk, app, settings] = await Promise.all([q("win-window/window", { range, limit: 20000 }), q("win-afk/afk", { range, limit: 5000 }), q("phone-app/app", { range, limit: 20000 }), lifelog.settings()]);
+  data = {
+    pc: { rows: S.activeWindows(win, afk, range), rules: settings.categories || [], settingsName: "컴퓨터 분류 규칙" },
+    ph: { rows: S.clip(app, range.start, range.end), rules: settings.phone_categories || [], settingsName: "휴대폰 분류 규칙" },
+  };
+  draw();
 });
 </script></body></html>

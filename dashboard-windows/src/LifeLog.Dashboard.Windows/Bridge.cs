@@ -56,6 +56,7 @@ public sealed class Bridge
         o["tz"] ??= TimeZoneInfo.Local.Id;
         o["views"] ??= new JsonArray();
         o["categories"] ??= new JsonArray();
+        o["phone_categories"] ??= new JsonArray();
         return o;
     }
 

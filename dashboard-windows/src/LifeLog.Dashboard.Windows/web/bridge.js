@@ -47,6 +47,8 @@
       chrome.webview.postMessage(d.msg);   // 그대로 호스트로. 권한 검사는 호스트가 from으로 한다
     });
   } else {
+    // 플러그인 문서의 로드·준비 상태를 호스트 로그에 남긴다(문제 추적용)
+    window.addEventListener("load", () => call("log", `${pluginId}: 문서 로드 ${location.href}`));
     window.addEventListener("message", e => {
       const d = e.data;
       if (d && d.lifelog === "reply") settle(d.reply);
