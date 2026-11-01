@@ -2,7 +2,7 @@
 # 비밀번호는 프롬프트에서 받고 어디에도 저장하지 않는다. 기기 비밀번호는 화면에 찍지 않고 adb 인텐트로만 앱에 전달한다.
 # 사용자가 일반 PowerShell에서 직접 실행한다(Claude 도구 셸에서 돌리지 않는다).
 #
-#   powershell -ExecutionPolicy Bypass -File tools/db/phone-setup.ps1 -ProjectRef ektnxxskcpngsiwmbftb
+#   powershell -ExecutionPolicy Bypass -File tools/db/phone-setup.ps1 -ProjectRef <프로젝트ref>
 #   옵션: -Device phone -SkipMigrate -SkipReset(비밀번호를 다시 만들지 않고 앱만 연다)
 param(
     [Parameter(Mandatory = $true)][string]$ProjectRef,

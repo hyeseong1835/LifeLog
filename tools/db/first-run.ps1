@@ -1,7 +1,7 @@
 # LifeLog 첫 실행: 관리자 접속으로 코어 스키마 적용 → 기존 데이터 이관 → 이 노트북을 기기로 등록.
 # 비밀번호는 프롬프트에서 받고 어디에도 저장하지 않는다(환경 변수는 이 프로세스 안에서만 산다).
 #
-#   powershell -ExecutionPolicy Bypass -File tools/db/first-run.ps1 -ProjectRef ektnxxskcpngsiwmbftb
+#   powershell -ExecutionPolicy Bypass -File tools/db/first-run.ps1 -ProjectRef <프로젝트ref>
 #   옵션: -Host aws-0-ap-northeast-1.pooler.supabase.com -Port 5432 -Database postgres -SkipImport -SkipSetup
 param(
     [Parameter(Mandatory = $true)][string]$ProjectRef,
