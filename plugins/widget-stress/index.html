@@ -20,7 +20,7 @@
 <script src="https://app.lifelog/sdk.js"></script>
 <script>
 // 스트레스(삼성 헬스 홈 카드 모양). health/point의 metric "stress"(0~100)를 값에 따라 색이 변하는 선으로, 마지막 값은 낮음/보통/높음 말풍선으로.
-// Health Connect에는 스트레스 항목이 없어 삼성 헬스 Data SDK 소스(보류)가 생겨야 값이 들어온다. 그때까지는 "기록 없음".
+// Health Connect에도 삼성 헬스 Data SDK 1.1.0에도 스트레스 타입이 없다. metric "stress"를 넣는 소스가 생기면 그대로 그려진다.
 const S = LifeLogSdk;
 const level = v => v < 25 ? ["낮음", "#4caf50"] : v < 50 ? ["보통", "#c9b227"] : v < 75 ? ["높음", "#f28c28"] : ["매우 높음", "#e53935"];
 lifelog.ready(async (range, widget) => {
@@ -30,7 +30,7 @@ lifelog.ready(async (range, widget) => {
   try { rows = (await lifelog.query("health/point", { range, where: { metric: "stress" }, limit: 20000 })).rows; } catch (e) { root.textContent = "읽기 실패: " + e.message; return; }
   if (st.device) rows = rows.filter(r => r.device === st.device);
   rows = rows.filter(r => r.value != null).sort((a, b) => S.ms(a.time) - S.ms(b.time));
-  if (rows.length === 0) { root.className = "none"; root.innerHTML = "스트레스 기록 없음<br><span class=\"mute\">Health Connect에는 스트레스가 없어 삼성 헬스 Data SDK 수집기가 필요합니다(아직 없음).</span>"; return; }
+  if (rows.length === 0) { root.className = "none"; root.innerHTML = "스트레스 기록 없음<br><span class=\"mute\">Health Connect에도, 삼성 헬스 Data SDK(1.1.0)에도 스트레스 데이터 타입이 없어 자동으로 받을 수 없습니다.</span>"; return; }
   const S0 = S.ms(range.start), E0 = S.ms(range.end), span = E0 - S0;
   root.className = ""; root.innerHTML = '<div class="head"></div><div class="chart"></div>';
   const chart = root.querySelector(".chart");
