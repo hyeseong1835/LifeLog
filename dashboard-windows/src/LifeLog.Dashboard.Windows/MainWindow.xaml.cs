@@ -1,0 +1,77 @@
+using System.IO;
+using System.Windows;
+using LifeLog.Core;
+using Microsoft.Web.WebView2.Core;
+
+namespace LifeLog.Dashboard.Windows;
+
+/// <summary>
+/// 대시보드 창 = WebView2 하나. 셸 페이지(web/index.html)가 날짜 이동·내장 타임라인·렌더러 플러그인(iframe)을 그린다.
+/// 호스트는 lifelog 브리지(Bridge.cs)로 query·등록부·설정만 제공한다.
+/// </summary>
+public partial class MainWindow : Window
+{
+    private Bridge? _bridge;
+    private Db? _db;
+
+    public MainWindow()
+    {
+        InitializeComponent();
+        Loaded += async (_, _) => await InitAsync();
+        Closed += (_, _) => _db?.DisposeAsync().AsTask().Wait(2000);
+    }
+
+    public static void Log(string msg)
+    {
+        try { Directory.CreateDirectory(Config.Dir); File.AppendAllText(Path.Combine(Config.Dir, "dashboard.log"), $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {msg}{Environment.NewLine}"); } catch (IOException) { }
+    }
+
+    private async Task InitAsync()
+    {
+        try
+        {
+            Log("시작");
+            var cfg = Config.Load();
+            if (cfg is null) { Status.Text = "설정이 없습니다. 수집기 앱의 setup을 먼저 하거나 %LOCALAPPDATA%\\LifeLog\\dashboard\\config.json을 만드세요."; return; }
+            _db = new Db(cfg.ConnectionString());
+            var ver = await _db.SchemaVersionAsync();
+            if (ver > Db.KnownSchemaVersion) { Status.Text = $"DB 코어 스키마({ver})가 이 앱({Db.KnownSchemaVersion})보다 높습니다. 앱을 갱신하세요."; return; }
+
+            var env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(Config.Dir, "webview2"));
+            await Web.EnsureCoreWebView2Async(env);
+            var core = Web.CoreWebView2;
+            core.Settings.IsWebMessageEnabled = true;
+            core.Settings.AreDevToolsEnabled = true;
+
+            var webDir = Path.Combine(AppContext.BaseDirectory, "web");
+            core.SetVirtualHostNameToFolderMapping("app.lifelog", webDir, CoreWebView2HostResourceAccessKind.Allow);
+            _bridge = new Bridge(_db, cfg, core, this);
+            await _bridge.MapPluginsAsync();
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(Path.Combine(webDir, "bridge.js")));
+            core.WebMessageReceived += (_, e) => _ = _bridge.HandleAsync(e);
+            Log("WebView2 준비, 브리지 연결");
+            Status.Visibility = Visibility.Collapsed;
+            // 개발용: --screenshot 경로 → 로드 뒤 4초 후 캡처하고 종료
+            var args = Environment.GetCommandLineArgs();
+            var si = Array.IndexOf(args, "--screenshot");
+            if (si >= 0 && si + 1 < args.Length)
+            {
+                var path = args[si + 1];
+                core.NavigationCompleted += async (_, _) =>
+                {
+                    await Task.Delay(4000);
+                    await using var fs = File.Create(path);
+                    await core.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, fs);
+                    Close();
+                };
+            }
+            core.Navigate("https://app.lifelog/index.html");
+        }
+        catch (Exception e)
+        {
+            Status.Text = "시작 실패: " + e.Message;
+            Log("시작 실패: " + e);
+            if (Environment.GetCommandLineArgs().Contains("--screenshot")) Close();
+        }
+    }
+}

@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LifeLog.Dashboard.Windows/LifeLog.Dashboard.Windows.csproj" />
+  </Folder>
+</Solution>

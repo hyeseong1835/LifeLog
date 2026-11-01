@@ -8,7 +8,7 @@ namespace LifeLog.Core;
 public sealed class Db : IAsyncDisposable
 {
     /// <summary>이 앱이 아는 코어 스키마 버전. DB가 더 높으면 쓰기를 멈춘다(Documents/등록 함수.md 4절).</summary>
-    public const int KnownSchemaVersion = 4;
+    public const int KnownSchemaVersion = 5;
 
     private readonly NpgsqlDataSource _ds;
     public TimeSpan ClockOffset { get; private set; }   // DB now() - 로컬 now
@@ -79,6 +79,62 @@ public sealed class Db : IAsyncDisposable
         await using var cmd = _ds.CreateCommand($"SELECT count(*) FROM lifelog.\"{view.Replace("\"", "\"\"")}\" WHERE device = $1 AND {col} > now() - interval '24 hours'");
         cmd.Parameters.Add(new NpgsqlParameter { Value = device });
         return Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
+    }
+
+    /// <summary>렌더러 query 실행. 결과는 행 배열 JSON. 상한을 넘으면 truncated=true.</summary>
+    public async Task<string> QueryAsync(QuerySpec q, TableMeta meta, CancellationToken ct = default)
+    {
+        var (sql, ps) = QueryBuilder.Build(q, meta);
+        await using var cmd = _ds.CreateCommand(sql);
+        foreach (var p in ps) cmd.Parameters.Add(p);
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        var rows = new List<Dictionary<string, object?>>();
+        while (await r.ReadAsync(ct))
+        {
+            var row = new Dictionary<string, object?>();
+            for (int i = 0; i < r.FieldCount; i++)
+            {
+                var v = r.IsDBNull(i) ? null : r.GetValue(i);
+                row[r.GetName(i)] = v switch
+                {
+                    DateTime dt => new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Utc)).ToString("O"),
+                    Guid g => g.ToString(),
+                    _ => v,
+                };
+            }
+            rows.Add(row);
+        }
+        bool truncated = rows.Count > q.Limit;
+        if (truncated) rows.RemoveAt(rows.Count - 1);
+        return JsonSerializer.Serialize(new { rows, truncated });
+    }
+
+    /// <summary>등록부에서 수집기 출력 목록(테이블 메타 + 매니페스트의 라벨 열·kind). 내장 타임라인용.</summary>
+    public async Task<List<OutputInfo>> ListOutputsAsync(CancellationToken ct = default)
+    {
+        await using var cmd = _ds.CreateCommand(
+            "SELECT ct.plugin_id, ct.output, ct.schema_version, ct.kind, ct.columns::text, pv.manifest::text " +
+            "FROM lifelog.collector_tables ct JOIN lifelog.plugins p ON p.id = ct.plugin_id " +
+            "JOIN lifelog.plugin_versions pv ON pv.plugin_id = p.id AND pv.version = p.latest_version ORDER BY ct.plugin_id, ct.output, ct.schema_version");
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        var list = new List<OutputInfo>();
+        while (await r.ReadAsync(ct))
+        {
+            var cols = JsonSerializer.Deserialize<Dictionary<string, string>>(r.GetString(4))!;
+            var manifest = JsonDocument.Parse(r.GetString(5)).RootElement;
+            string label = "", name = r.GetString(0);
+            if (manifest.TryGetProperty("name", out var n)) name = n.GetString() ?? name;
+            foreach (var o in manifest.GetProperty("outputs").EnumerateArray())
+                if (o.GetProperty("name").GetString() == r.GetString(1)) label = o.GetProperty("label").GetString() ?? "";
+            list.Add(new OutputInfo(r.GetString(0), r.GetString(1), r.GetInt32(2), r.GetString(3) == "span", cols, label, name));
+        }
+        return list;
+    }
+
+    public sealed record OutputInfo(string Plugin, string Output, int SchemaVersion, bool IsSpan, Dictionary<string, string> Columns, string Label, string PluginName)
+    {
+        public string Table => $"{Plugin}/{Output}@{SchemaVersion}";
+        public string View => $"{Plugin}/{Output}";
     }
 
     public async Task TouchLastSeenAsync(string device, CancellationToken ct = default)

@@ -11,7 +11,10 @@ namespace LifeLog.Core;
 /// </summary>
 public sealed class Config
 {
-    public static string Dir { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LifeLog", "collector");
+    /// <summary>앱 이름. 수집기는 "collector", 대시보드는 "dashboard". 시작 시 한 번 정한다.</summary>
+    public static string AppName { get; set; } = "collector";
+    public static string Root { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LifeLog");
+    public static string Dir => Path.Combine(Root, AppName);
     public static string PluginsDir => Path.Combine(Dir, "plugins");
     public static string QueuePath => Path.Combine(Dir, "queue.db");
     private static string FilePath => Path.Combine(Dir, "config.json");
@@ -30,8 +33,14 @@ public sealed class Config
 
     public static Config? Load()
     {
-        if (!File.Exists(FilePath)) return null;
-        return JsonSerializer.Deserialize<Config>(File.ReadAllText(FilePath));
+        if (File.Exists(FilePath)) return JsonSerializer.Deserialize<Config>(File.ReadAllText(FilePath));
+        // 같은 기기의 다른 앱(수집기 ↔ 대시보드)은 같은 기기 롤을 쓴다. DPAPI가 같은 사용자라 그대로 읽힌다.
+        foreach (var other in new[] { "collector", "dashboard" })
+        {
+            var f = Path.Combine(Root, other, "config.json");
+            if (other != AppName && File.Exists(f)) return JsonSerializer.Deserialize<Config>(File.ReadAllText(f));
+        }
+        return null;
     }
 
     public void Save()
