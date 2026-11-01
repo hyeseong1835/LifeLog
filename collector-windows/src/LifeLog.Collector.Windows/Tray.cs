@@ -7,8 +7,7 @@ namespace LifeLog.Collector.Windows;
 /// <summary>트레이 아이콘. 별도 STA 스레드에서 WinForms 메시지 루프를 돌린다. 메뉴: 상태, 로그 폴더 열기, 종료.</summary>
 public sealed class Tray : IDisposable
 {
-    [DllImport("kernel32.dll")] private static extern IntPtr GetConsoleWindow();
-    [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int cmd);
+    [DllImport("kernel32.dll")] private static extern bool FreeConsole();
 
     private readonly Thread _thread;
     private NotifyIcon? _icon;
@@ -24,7 +23,8 @@ public sealed class Tray : IDisposable
 
     public void Start()
     {
-        ShowWindow(GetConsoleWindow(), 0);   // SW_HIDE
+        // 콘솔에서 떨어진다. 창을 숨기기만 하면 PowerShell 창에서 띄운 경우 그 창을 닫을 때 수집기도 같이 죽는다(CTRL_CLOSE). 로그는 파일에 남는다
+        FreeConsole();
         _thread.Start();
     }
 
