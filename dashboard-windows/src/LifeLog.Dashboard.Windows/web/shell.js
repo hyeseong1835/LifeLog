@@ -318,25 +318,44 @@ function renderGeneral(c) {
   };
 }
 
-/** 분류 규칙 편집 + 최근 7일 미분류 목록(사용 시간 순). kind: pc(app·title) | ph(package) */
+/** 규칙 트리 유틸. path는 "0.2.1"처럼 자식 인덱스를 점으로 이은 문자열. */
+const ruleAt = (rules, path) => path.split(".").reduce((list, i, k, arr) => k === arr.length - 1 ? list[Number(i)] : (list[Number(i)].children || []), rules);
+const listOf = (rules, path) => { const idx = path.split("."); let list = rules; for (let k = 0; k < idx.length - 1; k++) list = list[Number(idx[k])].children; return { list, i: Number(idx[idx.length - 1]) }; };
+function flattenRules(rules, depth = 0, prefix = "") {
+  const out = [];
+  (rules || []).forEach((r, i) => { const path = prefix ? `${prefix}.${i}` : String(i); out.push({ r, path, depth }); out.push(...flattenRules(r.children, depth + 1, path)); });
+  return out;
+}
+
+/** 분류 규칙 편집(트리) + 최근 7일 미분류 목록(사용 시간 순). kind: pc(app·title) | ph(package) */
 function renderRules(c, kind) {
   const key = kind === "pc" ? "categories" : "phone_categories";
   const rules = settings[key] || (settings[key] = []);
   const cols = kind === "pc" ? [["app", "app (exe 이름)"], ["title", "title (창 제목)"]] : [["app", "package"]];
+  const rows = flattenRules(rules);
   c.innerHTML = `<h2>분류 규칙 › ${kind === "pc" ? "컴퓨터" : "휴대폰"}</h2>
-    <p class="mute">위에서부터 처음 맞는 규칙을 쓴다. 정규식, 대소문자 무시. 이름은 "개발/코딩"처럼 /로 계층. ${kind === "pc" ? "app은 exe 이름(예: ^code\\.exe$), title은 창 제목." : "app 칸에 package 이름(예: ^com\\.google\\.android\\.youtube$)."}</p>
-    <table class="rules"><thead><tr><th style="width:28px"></th><th>이름</th>${cols.map(x => `<th>${esc(x[1])}</th>`).join("")}<th></th></tr></thead><tbody>
-    ${rules.map((r, i) => `<tr><td class="mute">${i + 1}</td><td><input data-i="${i}" data-k="name" value="${esc(r.name)}"></td>${cols.map(x => `<td><input data-i="${i}" data-k="${x[0]}" value="${esc(r[x[0]] || "")}"></td>`).join("")}<td><button data-up="${i}" title="위로">↑</button><button data-del="${i}">✕</button></td></tr>`).join("")}
+    <p class="mute">위에서부터 처음 맞는 규칙을 쓴다. 정규식, 대소문자 무시. 규칙에 <b>자식</b>을 두면 부모가 맞을 때만 자식을 검사하고, 맞는 자식이 있으면 그 자식("부모/자식"), 없으면 부모로 분류한다.
+    ${kind === "pc" ? "app은 exe 이름(예: ^msedge\\.exe$), title은 창 제목(예: YouTube)." : "app 칸에 package 이름(예: ^com\\.google\\.android\\.youtube$)."}</p>
+    <table class="rules"><thead><tr><th>이름</th>${cols.map(x => `<th>${esc(x[1])}</th>`).join("")}<th style="width:150px"></th></tr></thead><tbody>
+    ${rows.map(({ r, path, depth }) => `<tr class="depth${Math.min(depth, 4)}"><td><span class="indent" style="width:${depth * 18}px"></span>${depth ? '<span class="mute">└ </span>' : ""}<input data-p="${path}" data-k="name" value="${esc(r.name)}" placeholder="${depth ? "자식 이름" : "이름"}"></td>${cols.map(x => `<td><input data-p="${path}" data-k="${x[0]}" value="${esc(r[x[0]] || "")}"></td>`).join("")}<td class="tools"><button data-child="${path}" title="이 규칙 아래에 자식 추가">자식</button><button data-up="${path}" title="위로">↑</button><button data-del="${path}" title="지우기">✕</button></td></tr>`).join("")}
     </tbody></table>
     <div class="row"><button id="addRule">규칙 추가</button><button id="saveRules">저장</button><span id="ruleMsg" class="mute"></span></div>
-    <h3>최근 7일 미분류 <span class="mute">지금 규칙에 안 맞는 ${kind === "pc" ? "앱" : "package"}, 사용 시간 순. "추가"를 누르면 그 ${kind === "pc" ? "앱" : "package"}으로 새 규칙 줄을 만들고 이름을 제안한다</span></h3>
+    <h3>최근 7일 미분류 <span class="mute">어느 규칙에도 안 맞는 ${kind === "pc" ? "앱" : "package"}, 사용 시간 순. "추가"를 누르면 그 ${kind === "pc" ? "앱" : "package"}으로 새 규칙 줄을 만들고 이름을 제안한다</span></h3>
     <div id="unmatched" class="mute">불러오는 중…</div>`;
-  const collect = () => c.querySelectorAll("input[data-i]").forEach(el => { rules[Number(el.dataset.i)][el.dataset.k] = el.value; });
-  c.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { collect(); rules.splice(Number(b.dataset.del), 1); renderSettingsPage(); });
-  c.querySelectorAll("[data-up]").forEach(b => b.onclick = () => { const i = Number(b.dataset.up); if (i === 0) return; collect(); const r = rules.splice(i, 1)[0]; rules.splice(i - 1, 0, r); renderSettingsPage(); });
+  const collect = () => c.querySelectorAll("input[data-p]").forEach(el => { ruleAt(rules, el.dataset.p)[el.dataset.k] = el.value; });
+  c.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { collect(); const { list, i } = listOf(rules, b.dataset.del); list.splice(i, 1); renderSettingsPage(); });
+  c.querySelectorAll("[data-up]").forEach(b => b.onclick = () => { collect(); const { list, i } = listOf(rules, b.dataset.up); if (i === 0) return; const r = list.splice(i, 1)[0]; list.splice(i - 1, 0, r); renderSettingsPage(); });
+  c.querySelectorAll("[data-child]").forEach(b => b.onclick = () => {
+    collect(); const r = ruleAt(rules, b.dataset.child); (r.children || (r.children = [])).push({ name: "", app: "", title: "" }); renderSettingsPage();
+    const inputs = $("#settingsContent").querySelectorAll(`input[data-p^="${b.dataset.child}."][data-k="name"]`); inputs[inputs.length - 1]?.focus();
+  });
   $("#addRule").onclick = () => { collect(); rules.push({ name: "", app: "", title: "" }); renderSettingsPage(); };
-  $("#saveRules").onclick = async () => { collect(); settings[key] = rules.filter(r => r.name); await saveSettings(); $("#ruleMsg").textContent = "저장됨"; renderSettingsPage(); };
+  $("#saveRules").onclick = async () => { collect(); settings[key] = pruneRules(rules); await saveSettings(); $("#ruleMsg").textContent = "저장됨"; renderSettingsPage(); };
   renderUnmatched(c.querySelector("#unmatched"), kind, rules);
+}
+/** 저장 전 정리: 이름 없는 규칙은 버리고, 빈 children은 지운다. */
+function pruneRules(rules) {
+  return (rules || []).filter(r => r.name).map(r => { const o = { name: r.name, app: r.app || "", title: r.title || "" }; const ch = pruneRules(r.children); if (ch.length) o.children = ch; return o; });
 }
 
 async function renderUnmatched(el, kind, rules) {
@@ -365,7 +384,7 @@ async function renderUnmatched(el, kind, rules) {
       (items.length > 40 ? `<div class="mute">… ${items.length - 40}개 더</div>` : "");
     el.querySelectorAll("[data-mk]").forEach(b => b.onclick = () => {
       // 입력 중인 값을 잃지 않게 모으고, 그 앱으로 규칙 줄 추가
-      el.closest(".content").querySelectorAll("input[data-i]").forEach(x => { rules[Number(x.dataset.i)][x.dataset.k] = x.value; });
+      el.closest(".content").querySelectorAll("input[data-p]").forEach(x => { ruleAt(rules, x.dataset.p)[x.dataset.k] = x.value; });
       rules.push({ name: b.dataset.name || "", app: "^" + escRe(b.dataset.mk) + "$", title: "" });
       renderSettingsPage();
       const inputs = $("#settingsContent").querySelectorAll('input[data-k="name"]'); const last = inputs[inputs.length - 1]; if (last) { last.focus(); last.select(); }

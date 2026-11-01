@@ -73,15 +73,21 @@
     if (open !== null && E > open) out.push({ s: open, e: E });
     return out;
   }
-  /** 분류 규칙 [{ name, app, title }](정규식, 대소문자 무시). 첫 번째로 맞는 규칙의 name, 없으면 null. */
+  /**
+   * 분류 규칙 트리 [{ name, app, title, children?: [...] }](정규식, 대소문자 무시).
+   * 위에서부터 처음 맞는 규칙을 고른다. 맞은 규칙에 자식이 있으면 자식들을 같은 방식으로 검사해 맞는 자식의 경로("부모/자식")를,
+   * 어느 자식도 안 맞으면 부모 이름을 돌려준다. 부모가 안 맞으면 자식은 보지 않는다. 아무것도 안 맞으면 null.
+   */
   function matchRules(rules, app, title) {
     for (const r of rules || []) {
+      if (!r || !r.name) continue;
+      let ok = false;
       try {
-        if (r.app && !new RegExp(r.app, "i").test(app || "")) continue;
-        if (r.title && !new RegExp(r.title, "i").test(title || "")) continue;
-        if (!r.app && !r.title) continue;
-        return r.name;
-      } catch (e) { /* 잘못된 정규식은 건너뜀 */ }
+        ok = (r.app || r.title) && (!r.app || new RegExp(r.app, "i").test(app || "")) && (!r.title || new RegExp(r.title, "i").test(title || ""));
+      } catch (e) { ok = false; /* 잘못된 정규식은 건너뜀 */ }
+      if (!ok) continue;
+      const child = r.children && r.children.length ? matchRules(r.children, app, title) : null;
+      return child ? r.name + "/" + child : r.name;
     }
     return null;
   }
