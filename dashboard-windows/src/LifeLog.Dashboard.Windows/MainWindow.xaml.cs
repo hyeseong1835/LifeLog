@@ -69,6 +69,7 @@ public partial class MainWindow : Window
                     var hosts = string.Join(",", Directory.GetDirectories(Bridge.PluginsDir).Select(d => "'" + Path.GetFileName(d) + "'"));
                     await core.ExecuteScriptAsync($"(async()=>{{const out=[];for(const id of [{hosts}]){{try{{const r=await fetch('https://plugin-'+id+'.lifelog/manifest.json');out.push(id+':'+r.status)}}catch(e){{out.push(id+':ERR '+e.message)}}}}chrome.webview.postMessage({{id:'diag',from:'shell',method:'log',args:['플러그인 호스트 진단: '+out.join(' | ')]}})}})()");
                     await Task.Delay(2000);
+                    if (args.Contains("--scroll-bottom")) { await core.ExecuteScriptAsync("window.scrollTo(0, document.body.scrollHeight)"); await Task.Delay(1500); }
                     await using var fs = File.Create(path);
                     await core.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, fs);
                     Close();
