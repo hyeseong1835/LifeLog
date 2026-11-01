@@ -1,0 +1,14 @@
+{
+  "type": "renderer",
+  "id": "widget-sunburst",
+  "version": "1.0.0",
+  "name": "분류 선버스트",
+  "min_host_version": 1,
+  "runtimes": { "webview": "index.html" },
+  "slot": "card",
+  "inputs": ["win-window/window@1", "win-afk/afk@1", "phone-app/app@1"],
+  "settings": [
+    { "key": "devices", "type": "list", "default": [], "label": "포함할 기기 (비우면 전부)" },
+    { "key": "outer", "type": "enum", "options": ["auto", "category", "app"], "default": "auto", "label": "바깥 고리: auto(하위 분류, 없으면 앱) / category / app" }
+  ]
+}

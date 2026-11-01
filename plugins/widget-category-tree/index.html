@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<style>
+  :root { --fg:#ddd; --mute:#888; --line:#2a2a2a; color-scheme: dark; }
+  :root[data-theme="light"] { --fg:#1c1c1e; --mute:#6b6b70; --line:#dcdce0; color-scheme: light; }
+  body { margin:0; padding:6px 12px 8px; font: 12px/1.5 "Segoe UI Variable", "Segoe UI", sans-serif; color:var(--fg); background:transparent; }
+  .node { display:flex; align-items:center; gap:6px; padding:1px 0; }
+  .node .tg { width:14px; text-align:center; color:var(--mute); cursor:pointer; user-select:none; font-family: Consolas, monospace; }
+  .node .dot { width:14px; text-align:center; color:var(--mute); }
+  .node .sw { width:9px; height:9px; border-radius:2px; flex:none; }
+  .node .nm { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .node .ms { color:var(--mute); font-variant-numeric: tabular-nums; white-space:nowrap; }
+  .node.app .nm { color:var(--mute); }
+  .kids { margin-left:18px; border-left:1px solid var(--line); padding-left:4px; }
+  .opt { margin-top:8px; color:var(--mute); display:flex; gap:12px; align-items:center; }
+  .mute { color:var(--mute); }
+</style></head>
+<body><div id="root" class="mute">불러오는 중…</div>
+<script src="https://app.lifelog/sdk.js"></script>
+<script>
+// 분류 트리(ActivityWatch Category Tree). 접고 펼치기, 시간/퍼센트 전환. 펼치면 하위 분류와 그 분류에 직접 속한 앱이 보인다.
+const S = LifeLogSdk;
+async function q(view, opts) { try { return (await lifelog.query(view, opts)).rows; } catch (e) { return []; } }
+let tree = null, total = 0, percent = false, showApps = true;
+const open = new Set();
+const fmt = ms => percent ? (ms / total * 100).toFixed(1) + "%" : S.fmtDur(ms);
+function render() {
+  const root = document.getElementById("root");
+  const nodes = [...tree.children.values()].sort((a, b) => b.ms - a.ms);
+  root.className = "";
+  root.innerHTML = nodes.map(n => renderNode(n)).join("") +
+    `<div class="opt"><label><input type="checkbox" id="pct" ${percent ? "checked" : ""}> 퍼센트로 보기</label><span>합계 ${S.fmtDur(total)}</span></div>`;
+  root.querySelectorAll("[data-tg]").forEach(el => el.onclick = () => { const k = el.dataset.tg; open.has(k) ? open.delete(k) : open.add(k); render(); });
+  document.getElementById("pct").onchange = e => { percent = e.target.checked; render(); };
+}
+function renderNode(n) {
+  const kids = [...n.children.values()].sort((a, b) => b.ms - a.ms);
+  const apps = showApps ? [...n.apps.entries()].sort((a, b) => b[1] - a[1]) : [];
+  const expandable = kids.length > 0 || apps.length > 0;
+  const isOpen = open.has(n.path);
+  let html = `<div class="node"><span class="${expandable ? "tg" : "dot"}" ${expandable ? `data-tg="${S.esc(n.path)}"` : ""}>${expandable ? (isOpen ? "⊟" : "⊞") : "•"}</span><span class="sw" style="background:${S.categoryColor(n.path)}"></span><span class="nm" title="${S.esc(n.path)}">${S.esc(n.name)}</span><span class="ms">${fmt(n.ms)}</span></div>`;
+  if (isOpen) html += `<div class="kids">${kids.map(renderNode).join("")}${apps.map(([a, ms]) => `<div class="node app"><span class="dot">·</span><span class="sw" style="background:transparent"></span><span class="nm">${S.esc(a)}</span><span class="ms">${fmt(ms)}</span></div>`).join("")}</div>`;
+  return html;
+}
+lifelog.ready(async (range, widget) => {
+  const st = widget.settings || {}; percent = !!st.percent; showApps = st.apps !== false;
+  const root = document.getElementById("root");
+  const [win, afk, app, settings] = await Promise.all([q("win-window/window", { range, limit: 20000 }), q("win-afk/afk", { range, limit: 5000 }), q("phone-app/app", { range, limit: 20000 }), lifelog.settings()]);
+  const entries = S.categorize({ win, afk, app, range, devices: st.devices || [], pcRules: settings.categories || [], phRules: settings.phone_categories || [] });
+  if (entries.length === 0) { root.textContent = "기록 없음"; return; }
+  tree = S.categoryTree(entries); total = tree.ms;
+  render();
+});
+</script></body></html>

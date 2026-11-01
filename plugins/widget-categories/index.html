@@ -23,29 +23,19 @@ lifelog.ready(async (range, widget) => {
   const include = d => devices.length === 0 || devices.includes(d);
   const root = document.getElementById("root");
   const [win, afk, app, settings] = await Promise.all([q("win-window/window", { range, limit: 20000 }), q("win-afk/afk", { range, limit: 5000 }), q("phone-app/app", { range, limit: 20000 }), lifelog.settings()]);
-  const pcRules = settings.categories || [], phRules = settings.phone_categories || [];
-  const sums = new Map(); let n = 0, missingRules = [];
+  const entries = S.categorize({ win, afk, app, range, devices, pcRules: settings.categories || [], phRules: settings.phone_categories || [] });
+  const sums = new Map(); let n = entries.length, missingRules = [];
   const add = (name, ms) => { const parts = name.split("/"); for (let i = 1; i <= parts.length; i++) { const k = parts.slice(0, i).join("/"); sums.set(k, (sums.get(k) || 0) + ms); } };
-  // 컴퓨터: 기기별로 창 − 자리 비움
-  const pcDevices = [...new Set(win.map(r => r.device))].filter(include);
-  for (const d of pcDevices) {
-    const rows = S.activeWindows(win.filter(r => r.device === d), afk.filter(r => r.device === d), range);
-    if (rows.length && pcRules.length === 0) missingRules.push("컴퓨터");
-    for (const r of rows) { add(S.matchRules(pcRules, r.app, r.title) || "기타", r.e - r.s); n++; }
-  }
-  // 휴대폰: 앱 구간
-  const phDevices = [...new Set(app.map(r => r.device))].filter(include);
-  for (const d of phDevices) {
-    const rows = S.clip(app.filter(r => r.device === d), range.start, range.end);
-    if (rows.length && phRules.length === 0) missingRules.push("휴대폰");
-    for (const r of rows) { add(S.matchRules(phRules, r.package, "") || "기타", r.e - r.s); n++; }
-  }
+  for (const en of entries) add(en.path, en.e - en.s);
+  if (entries.some(en => !en.app.startsWith("📱")) && !(settings.categories || []).length) missingRules.push("컴퓨터");
+  if (entries.some(en => en.app.startsWith("📱")) && !(settings.phone_categories || []).length) missingRules.push("휴대폰");
+  const pcDevices = [...new Set(entries.filter(en => !en.app.startsWith("📱")).map(en => en.device))], phDevices = [...new Set(entries.filter(en => en.app.startsWith("📱")).map(en => en.device))];
   if (n === 0) { root.className = "mute"; root.innerHTML = "기록 없음" + (devices.length ? ` (${devices.join(", ")})` : ""); return; }
   const groups = [...sums.entries()].map(([key, ms]) => ({ key, ms })).sort((a, b) => b.ms - a.ms);
   const max = groups[0].ms;
   root.className = "";
   root.innerHTML = groups.slice(0, limit).map(g => `<div class="row" title="${S.esc(g.key)}">
-    <div class="bar" style="width:${Math.max(2, g.ms / max * 100)}%;background:${S.hashColor(g.key.split("/")[0])};padding-left:${5 + (g.key.split("/").length - 1) * 10}px">${S.esc(g.key)}</div><div class="dur">${S.fmtDur(g.ms)}</div></div>`).join("") +
+    <div class="bar" style="width:${Math.max(2, g.ms / max * 100)}%;background:${S.categoryColor(g.key)};padding-left:${5 + (g.key.split("/").length - 1) * 10}px">${S.esc(g.key)}</div><div class="dur">${S.fmtDur(g.ms)}</div></div>`).join("") +
     `<div class="mute" style="margin-top:6px">${[...pcDevices, ...phDevices].join(", ")}${missingRules.length ? ` · ${[...new Set(missingRules)].join("·")} 규칙 없음(설정)` : ""}</div>`;
 });
 </script></body></html>

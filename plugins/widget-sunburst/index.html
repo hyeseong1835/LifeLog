@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<style>
+  :root { --fg:#ddd; --mute:#888; --center:#2a2a2a; color-scheme: dark; }
+  :root[data-theme="light"] { --fg:#1c1c1e; --mute:#6b6b70; --center:#e4e4e8; color-scheme: light; }
+  html, body { height:100%; }
+  body { margin:0; font: 11px/1.3 "Segoe UI Variable", "Segoe UI", sans-serif; color:var(--fg); background:transparent; display:flex; align-items:center; justify-content:center; }
+  svg { width:100%; height:100%; }
+  .lbl { fill:#111; font-size:9px; pointer-events:none; }
+  .center { fill: var(--fg); font-size:13px; }
+  .mute { color:var(--mute); }
+</style></head>
+<body><div id="root" class="mute">불러오는 중…</div>
+<script src="https://app.lifelog/sdk.js"></script>
+<script>
+// 분류 선버스트(ActivityWatch Category Sunburst). 안쪽 고리 = 최상위 분류, 바깥 고리 = 하위 분류(없으면 앱). 중심에 합계.
+const S = LifeLogSdk;
+async function q(view, opts) { try { return (await lifelog.query(view, opts)).rows; } catch (e) { return []; } }
+const polar = (cx, cy, r, a) => [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+function arc(cx, cy, r0, r1, a0, a1) {
+  if (a1 - a0 >= Math.PI * 2 - 1e-6) a1 = a0 + Math.PI * 2 - 1e-4;
+  const [x0, y0] = polar(cx, cy, r1, a0), [x1, y1] = polar(cx, cy, r1, a1), [x2, y2] = polar(cx, cy, r0, a1), [x3, y3] = polar(cx, cy, r0, a0);
+  const big = a1 - a0 > Math.PI ? 1 : 0;
+  return `M${x0},${y0} A${r1},${r1} 0 ${big} 1 ${x1},${y1} L${x2},${y2} A${r0},${r0} 0 ${big} 0 ${x3},${y3} Z`;
+}
+function shade(color, k) { // hsl 문자열의 밝기를 조금 바꾼다
+  const m = /hsl\((\d+) (\d+)% (\d+)%\)/.exec(color); if (!m) return color;
+  return `hsl(${m[1]} ${m[2]}% ${Math.max(25, Math.min(85, Number(m[3]) + k))}%)`;
+}
+lifelog.ready(async (range, widget) => {
+  const st = widget.settings || {}; const mode = st.outer || "auto";
+  const root = document.getElementById("root");
+  const [win, afk, app, settings] = await Promise.all([q("win-window/window", { range, limit: 20000 }), q("win-afk/afk", { range, limit: 5000 }), q("phone-app/app", { range, limit: 20000 }), lifelog.settings()]);
+  const entries = S.categorize({ win, afk, app, range, devices: st.devices || [], pcRules: settings.categories || [], phRules: settings.phone_categories || [] });
+  if (entries.length === 0) { root.textContent = "기록 없음"; return; }
+  const tree = S.categoryTree(entries); const total = tree.ms;
+  const inner = [...tree.children.values()].sort((a, b) => b.ms - a.ms);
+  const size = Math.min(innerWidth, innerHeight) || 300, cx = size / 2, cy = size / 2, R = size / 2 - 4, r2 = R * 0.72, r1 = R * 0.45;
+  let svg = `<svg viewBox="0 0 ${size} ${size}">`;
+  let a = -Math.PI / 2;
+  for (const n of inner) {
+    const span = n.ms / total * Math.PI * 2, a1 = a + span, color = S.categoryColor(n.path);
+    svg += `<path d="${arc(cx, cy, r1, r2, a, a1)}" fill="${color}" stroke="#0006" stroke-width="1"><title>${S.esc(n.name)}  ${S.fmtDur(n.ms)} (${Math.round(n.ms / total * 100)}%)</title></path>`;
+    if (span > 0.25) { const [tx, ty] = polar(cx, cy, (r1 + r2) / 2, (a + a1) / 2); const deg = ((a + a1) / 2) * 180 / Math.PI; svg += `<text class="lbl" x="${tx}" y="${ty}" text-anchor="middle" transform="rotate(${deg > 90 || deg < -90 ? deg + 180 : deg} ${tx} ${ty})">${S.esc(n.name.length > 12 ? n.name.slice(0, 11) + "…" : n.name)}</text>`; }
+    // 바깥 고리
+    let parts;
+    if (mode === "app" || (mode === "auto" && n.children.size === 0)) parts = [...n.apps.entries()].map(([k, ms]) => ({ name: k, ms }));
+    else {
+      parts = [...n.children.values()].map(c => ({ name: c.name, ms: c.ms }));
+      const rest = n.ms - parts.reduce((x, y) => x + y.ms, 0); if (rest > 0) parts.push({ name: mode === "category" ? "(직접)" : null, ms: rest, apps: n.apps });
+    }
+    parts.sort((x, y) => y.ms - x.ms);
+    let b = a, i = 0;
+    for (const p of parts) {
+      const items = p.name === null ? [...p.apps.entries()].map(([k, ms]) => ({ name: k, ms })).sort((x, y) => y.ms - x.ms) : [p];
+      for (const it of items) {
+        const sp = it.ms / total * Math.PI * 2, b1 = b + sp;
+        svg += `<path d="${arc(cx, cy, r2 + 2, R, b, b1)}" fill="${shade(color, (i % 2 ? 10 : -6))}" stroke="#0006" stroke-width="1"><title>${S.esc(n.name)} › ${S.esc(it.name)}  ${S.fmtDur(it.ms)}</title></path>`;
+        if (sp > 0.12) { const [tx, ty] = polar(cx, cy, (r2 + R) / 2 + 1, (b + b1) / 2); const deg = ((b + b1) / 2) * 180 / Math.PI; svg += `<text class="lbl" x="${tx}" y="${ty}" text-anchor="middle" transform="rotate(${deg > 90 || deg < -90 ? deg + 180 : deg} ${tx} ${ty})">${S.esc(it.name.length > 14 ? it.name.slice(0, 13) + "…" : it.name)}</text>`; }
+        b = b1; i++;
+      }
+    }
+    a = a1;
+  }
+  svg += `<circle cx="${cx}" cy="${cy}" r="${r1 - 2}" fill="var(--center)"/><text class="center" x="${cx}" y="${cy + 4}" text-anchor="middle">${S.fmtDur(total)}</text></svg>`;
+  root.className = ""; root.innerHTML = svg;
+});
+</script></body></html>

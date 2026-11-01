@@ -106,5 +106,46 @@
     return subtract(w, afk);
   }
 
-  g.LifeLogSdk = { clip, subtract, merge, sumMs, groupSum, bucketHours, pairEvents, matchRules, fmtDur, fmtTime, hashColor, esc, activeWindows, ms: t };
+  const UNCATEGORIZED = "미분류";
+  /**
+   * 분류 위젯 공통: 창(컴퓨터)·앱(휴대폰) 행을 규칙으로 분류한 항목 목록.
+   * { win, afk, app, range, devices(비우면 전부), pcRules, phRules } → [{ s, e, device, app, title, path, top }]
+   * path는 "웹사이트/유튜브" 같은 경로, 안 맞으면 "미분류". top은 첫 조각.
+   */
+  function categorize({ win = [], afk = [], app = [], range, devices = [], pcRules = [], phRules = [] }) {
+    const include = d => devices.length === 0 || devices.includes(d);
+    const out = [];
+    for (const d of [...new Set(win.map(r => r.device))].filter(include)) {
+      for (const r of activeWindows(win.filter(x => x.device === d), afk.filter(x => x.device === d), range)) {
+        const path = matchRules(pcRules, r.app, r.title) || UNCATEGORIZED;
+        out.push({ s: r.s, e: r.e, device: d, app: String(r.app || "?").replace(/\.exe$/i, ""), title: r.title || "", path, top: path.split("/")[0] });
+      }
+    }
+    for (const d of [...new Set(app.map(r => r.device))].filter(include)) {
+      for (const r of clip(app.filter(x => x.device === d), range.start, range.end)) {
+        const path = matchRules(phRules, r.package, "") || UNCATEGORIZED;
+        out.push({ s: r.s, e: r.e, device: d, app: "📱 " + String(r.package || "?").split(".").slice(-1)[0], title: "", path, top: path.split("/")[0] });
+      }
+    }
+    return out;
+  }
+  /** 분류 색: 최상위 이름으로 정해 모든 위젯에서 같다. 미분류는 회색. */
+  const categoryColor = path => { const top = String(path).split("/")[0]; return top === UNCATEGORIZED ? "#8a8a8a" : hashColor(top); };
+  /** 경로별 합계 트리. { name, path, ms, children: Map, apps: Map(app → ms) } */
+  function categoryTree(entries) {
+    const root = { name: "", path: "", ms: 0, children: new Map(), apps: new Map() };
+    for (const en of entries) {
+      const ms = en.e - en.s; root.ms += ms;
+      let node = root, path = "";
+      for (const part of en.path.split("/")) {
+        path = path ? path + "/" + part : part;
+        if (!node.children.has(part)) node.children.set(part, { name: part, path, ms: 0, children: new Map(), apps: new Map() });
+        node = node.children.get(part); node.ms += ms;
+      }
+      node.apps.set(en.app, (node.apps.get(en.app) || 0) + ms);
+    }
+    return root;
+  }
+
+  g.LifeLogSdk = { categorize, categoryColor, categoryTree, UNCATEGORIZED, clip, subtract, merge, sumMs, groupSum, bucketHours, pairEvents, matchRules, fmtDur, fmtTime, hashColor, esc, activeWindows, ms: t };
 })(typeof window !== "undefined" ? window : globalThis);
