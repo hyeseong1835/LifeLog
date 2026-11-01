@@ -1,0 +1,7 @@
+Documents/
+.env
+*.local.*
+__pycache__/
+node_modules/
+bin/
+obj/
