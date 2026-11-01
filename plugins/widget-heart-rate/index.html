@@ -4,10 +4,12 @@
   :root { --fg:#ddd; --mute:#888; --line:#2a2a2a; --bar:#e8305a; --bubble:#555; color-scheme: dark; }
   :root[data-theme="light"] { --fg:#1c1c1e; --mute:#6b6b70; --line:#dcdce0; --bubble:#666; color-scheme: light; }
   html, body { height:100%; }
-  body { margin:0; padding:8px 12px 6px; font: 11px/1.3 "Segoe UI Variable", "Segoe UI", sans-serif; color:var(--fg); background:transparent; display:flex; flex-direction:column; }
+  body { margin:0; padding:8px 12px 6px; font: 11px/1.3 "Segoe UI Variable", "Segoe UI", sans-serif; color:var(--fg); background:transparent; display:flex; flex-direction:column; overflow:hidden; box-sizing:border-box; }
   .head { display:flex; gap:14px; align-items:baseline; margin-bottom:4px; }
   .head b { font-size:22px; font-weight:600; }
   .head .mute { color:var(--mute); }
+  #root { display:flex; flex-direction:column; height:100%; }
+  #root.mute, #root.none { display:block; }
   .chart { flex:1; min-height:0; position:relative; }
   .chart svg { position:absolute; inset:0; width:100%; height:100%; }
   text { fill: var(--mute); font-size:10px; }

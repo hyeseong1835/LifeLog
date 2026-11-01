@@ -1,7 +1,7 @@
 {
   "type": "renderer",
   "id": "widget-stress",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "name": "스트레스",
   "min_host_version": 1,
   "runtimes": {
