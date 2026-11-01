@@ -1,16 +1,19 @@
 package dev.hyeseong.lifelog.collector.js
 
-import app.cash.quickjs.QuickJs
+import com.whl.quickjs.android.QuickJSLoader
+import com.whl.quickjs.wrapper.JSCallFunction
+import com.whl.quickjs.wrapper.JSFunction
+import com.whl.quickjs.wrapper.QuickJSContext
 import dev.hyeseong.lifelog.collector.core.Manifest
 import java.io.File
 
 /**
- * JS 수집기 플러그인 하나 = QuickJs 인스턴스 하나. 모든 호출은 디스패처 스레드에서만.
- * quickjs-android는 인터페이스 메서드로 문자열·숫자·불리언만 넘길 수 있으므로 행·이벤트는 JSON 문자열로 오간다.
+ * JS 수집기 플러그인 하나 = QuickJS 컨텍스트 하나(quickjs-wrapper, 16KB 페이지 정렬). 만든 스레드(디스패처)에서만 쓴다.
+ * 호스트 함수는 __host 객체의 JSCallFunction으로 붙이고, 행·이벤트는 JSON 문자열로 오간다.
  * 프렐류드(PRELUDE)가 JS 쪽 ctx를 만들어 호스트 API(Documents/수집기 호스트 API.md 3절)와 같은 모양을 제공한다.
  */
 class JsPlugin(val manifest: Manifest, val dir: File, private val host: HostApi) : AutoCloseable {
-    /** JS → 호스트. 이름은 소문자. 시각은 ISO 문자열. */
+    /** JS → 호스트. 시각은 ISO 문자열. */
     interface HostApi {
         fun subscribe(source: String)
         fun every(interval: String, timerIndex: Int)
@@ -29,38 +32,57 @@ class JsPlugin(val manifest: Manifest, val dir: File, private val host: HostApi)
         fun log(msg: String)
     }
 
-    /** 호스트 → JS. 프렐류드의 __entry. */
-    interface Entry {
-        fun start()
-        fun stop()
-        fun deliver(source: String, eventJson: String)
-        fun tick(timerIndex: Int)
-    }
-
-    private var qjs: QuickJs? = null
-    private var entry: Entry? = null
+    private var qjs: QuickJSContext? = null
+    private var fStart: JSFunction? = null
+    private var fStop: JSFunction? = null
+    private var fDeliver: JSFunction? = null
+    private var fTick: JSFunction? = null
     var failures = 0; private set
     var disabled = false; private set
     val subscribed = LinkedHashSet<String>()
 
     fun load() {
+        ensureLoaded()
         val file = manifest.runtimes["js"] ?: throw IllegalStateException("js 런타임이 아닙니다")
         var code = File(dir, file).readText()
         // ES 모듈 default export를 전역 변수로. import는 지원하지 않는다(플러그인은 파일 하나).
         code = code.replace(Regex("""export\s+default\s+"""), "var __plugin = ")
-        val q = QuickJs.create()
-        q.set("__host", HostApi::class.java, host)
+        val q = QuickJSContext.create()
+        q.setMemoryLimit(64 * 1024 * 1024)
+        q.setMaxStackSize(1024 * 1024)
+        val h = q.createNewJSObject()
+        fun s(a: Array<out Any?>, i: Int) = a.getOrNull(i)?.toString() ?: ""
+        h.setProperty("subscribe", JSCallFunction { a -> host.subscribe(s(a, 0)); null })
+        h.setProperty("every", JSCallFunction { a -> host.every(s(a, 0), (a[1] as Number).toInt()); null })
+        h.setProperty("read", JSCallFunction { a -> host.read(s(a, 0), s(a, 1)) })
+        h.setProperty("spanOpen", JSCallFunction { a -> host.spanOpen(s(a, 0), s(a, 1)) })
+        h.setProperty("spanUpdate", JSCallFunction { a -> host.spanUpdate(s(a, 0), s(a, 1)); null })
+        h.setProperty("spanClose", JSCallFunction { a -> host.spanClose(s(a, 0), s(a, 1)); null })
+        h.setProperty("spanPut", JSCallFunction { a -> host.spanPut(s(a, 0), s(a, 1), s(a, 2)) })
+        h.setProperty("spanDelete", JSCallFunction { a -> host.spanDelete(s(a, 0), s(a, 1)); null })
+        h.setProperty("emit", JSCallFunction { a -> host.emit(s(a, 0), s(a, 1), s(a, 2)) })
+        h.setProperty("stateGet", JSCallFunction { a -> host.stateGet(s(a, 0)) })
+        h.setProperty("stateSet", JSCallFunction { a -> host.stateSet(s(a, 0), s(a, 1)); null })
+        h.setProperty("settings", JSCallFunction { host.settings() })
+        h.setProperty("has", JSCallFunction { a -> host.has(s(a, 0)) })
+        h.setProperty("now", JSCallFunction { host.now() })
+        h.setProperty("log", JSCallFunction { a -> host.log(s(a, 0)); null })
+        q.globalObject.setProperty("__host", h)
         q.evaluate(PRELUDE, "prelude.js")
         q.evaluate(code, file)
         q.evaluate("if (typeof __plugin !== 'object' || !__plugin.start) throw new Error('main.js는 { start, stop }을 default export 해야 합니다');", "check.js")
-        entry = q.get("__entry", Entry::class.java)
+        val entry = q.globalObject.getJSObject("__entry")
+        fStart = entry.getJSFunction("start").also { it.hold() }
+        fStop = entry.getJSFunction("stop").also { it.hold() }
+        fDeliver = entry.getJSFunction("deliver").also { it.hold() }
+        fTick = entry.getJSFunction("tick").also { it.hold() }
         qjs = q
     }
 
-    fun start() = entry!!.start()
-    fun stop() = guard { entry?.stop() }
-    fun deliver(source: String, eventJson: String) { if (!disabled && source in subscribed) guard { entry!!.deliver(source, eventJson) } }
-    fun tick(i: Int) = guard { entry!!.tick(i) }
+    fun start() { fStart!!.callVoid() }
+    fun stop() = guard { fStop?.callVoid() }
+    fun deliver(source: String, eventJson: String) { if (!disabled && source in subscribed) guard { fDeliver!!.callVoid(source, eventJson) } }
+    fun tick(i: Int) = guard { fTick!!.callVoid(i) }
 
     private inline fun guard(block: () -> Unit) {
         try { block(); failures = 0 }
@@ -71,9 +93,12 @@ class JsPlugin(val manifest: Manifest, val dir: File, private val host: HostApi)
         }
     }
 
-    override fun close() { try { qjs?.close() } catch (_: Exception) {} }
+    override fun close() { try { qjs?.destroy() } catch (_: Exception) {}; qjs = null }
 
     companion object {
+        @Volatile private var loaded = false
+        private fun ensureLoaded() { if (!loaded) { QuickJSLoader.init(); loaded = true } }
+
         val PRELUDE = """
             var __handlers = {};
             var __timers = [];

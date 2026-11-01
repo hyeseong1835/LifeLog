@@ -12,7 +12,7 @@ app/src/main/java/dev/hyeseong/lifelog/collector/
     Queue.kt        로컬 큐(android SQLite). 같은 키의 upsert는 최신 하나만
     Uploader.kt     큐 → DB. 실패하면 5초~2분 물러났다 재시도
     SpanManager.kt  구간 관리: open/update/close/put/delete/emit, 1분마다 열린 구간 upsert
-  js/JsPlugin.kt    QuickJS 인스턴스 하나 = 플러그인 하나. 프렐류드가 ctx를 만든다. 값은 JSON 문자열로 오간다
+  js/JsPlugin.kt    QuickJS 컨텍스트 하나 = 플러그인 하나(quickjs-wrapper 3.2, 16KB 정렬). 프렐류드가 ctx를 만든다. 값은 JSON 문자열로 오간다
   sources/
     Sources.kt      screen(브로드캐스트), location(LocationManager 15분), usage(UsageStatsManager 읽기)
     MediaSource.kt  media(MediaSessionManager. 알림 접근 권한 필요, 알림 내용은 읽지 않음)
@@ -52,4 +52,4 @@ health 지표: steps(시간별 `hourly`)·steps/distance/active_kcal/total_kcal/
 - shealth(삼성 헬스 SDK, 개발자 모드 필요) 소스.
 - Health Connect 변경 토큰 읽기(지금은 시간 범위 재읽기).
 - QR로 설정 받기.
-- QuickJS .so가 16KB 페이지 정렬이 아니라 `pageSizeCompat="enabled"`(호환 모드)로 돌린다. 제대로 하려면 네이티브 라이브러리를 다시 빌드(NDK)하거나 순수 Java 엔진(Rhino)으로 바꿔야 한다.
+

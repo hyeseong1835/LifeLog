@@ -28,6 +28,8 @@ android {
     buildFeatures { compose = true }
     packaging {
         resources.excludes += setOf("META-INF/INDEX.LIST", "META-INF/DEPENDENCIES", "META-INF/io.netty.versions.properties")
+        // 16KB 페이지 기기: APK 안에 그대로 둔 .so는 16KB 경계에 놓여야 한다. 설치 때 풀어 쓰면 zip 배치와 무관하다(.so는 모두 16KB 정렬 빌드)
+        jniLibs.useLegacyPackaging = true
     }
 }
 
@@ -43,5 +45,5 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
     implementation("org.postgresql:postgresql:42.2.8")      // Postgres 직접 연결. 42.2.9+는 maxResultBuffer 파서가 java.lang.management를 써서 Android에서 못 붙는다
-    implementation("app.cash.quickjs:quickjs-android:0.9.2") // JS 수집기 런타임
+    implementation("wang.harlon.quickjs:wrapper-android:3.2.0") // JS 수집기 런타임(QuickJS). 16KB 페이지 정렬된 .so
 }
