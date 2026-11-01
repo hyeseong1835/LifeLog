@@ -51,7 +51,7 @@ lifelog.ready(async (range, widget) => {
   const bp = lastPoint("blood_pressure"); if (bp) tile("혈압(수축기)", Math.round(bp.value), "mmHg", S.fmtTime(bp.time));
   const bc = lastPoint("body_composition"); if (bc) tile("체중", r1(bc.value), "kg", S.fmtTime(bc.time));
 
-  if (tiles.length === 0) { root.className = "mute"; root.textContent = "삼성 헬스 기록 없음 (폰의 health 플러그인에 read:shealth 권한이 필요합니다)"; return; }
+  if (tiles.length === 0) { root.className = "mute"; root.innerHTML = "이 범위에 삼성 헬스 기록 없음<br><span class=\"mute\">에너지·수면 점수는 삼성 헬스가 계산한 뒤(보통 아침) 다음 1시간 동기화 때 들어옵니다. 계속 비어 있으면 폰 앱에서 삼성 헬스 SDK 권한을 확인하세요.</span>"; return; }
   root.className = ""; root.innerHTML = `<div class="grid">${tiles.join("")}</div>`;
 });
 </script></body></html>
