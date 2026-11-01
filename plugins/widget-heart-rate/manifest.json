@@ -1,0 +1,28 @@
+{
+  "type": "renderer",
+  "id": "widget-heart-rate",
+  "version": "1.0.1",
+  "name": "심박수",
+  "min_host_version": 1,
+  "runtimes": {
+    "webview": "index.html"
+  },
+  "slot": "card",
+  "inputs": [
+    "health/point@1"
+  ],
+  "settings": [
+    {
+      "key": "bucket",
+      "type": "number",
+      "default": 20,
+      "label": "막대 하나의 시간(분)"
+    },
+    {
+      "key": "device",
+      "type": "string",
+      "default": "",
+      "label": "기기 id (비우면 전부)"
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<style>
+  :root { --fg:#ddd; --mute:#888; --line:#2a2a2a; --bar:#e8305a; --bubble:#555; color-scheme: dark; }
+  :root[data-theme="light"] { --fg:#1c1c1e; --mute:#6b6b70; --line:#dcdce0; --bubble:#666; color-scheme: light; }
+  html, body { height:100%; }
+  body { margin:0; padding:8px 12px 6px; font: 11px/1.3 "Segoe UI Variable", "Segoe UI", sans-serif; color:var(--fg); background:transparent; display:flex; flex-direction:column; }
+  .head { display:flex; gap:14px; align-items:baseline; margin-bottom:4px; }
+  .head b { font-size:22px; font-weight:600; }
+  .head .mute { color:var(--mute); }
+  .chart { flex:1; min-height:0; position:relative; }
+  .chart svg { position:absolute; inset:0; width:100%; height:100%; }
+  text { fill: var(--mute); font-size:10px; }
+  .mute { color:var(--mute); }
+</style></head>
+<body><div id="root" class="mute">불러오는 중…</div>
+<script src="https://app.lifelog/sdk.js"></script>
+<script>
+// 심박수(삼성 헬스 홈 카드 모양). health/point의 heart_rate를 구간(기본 20분)별 최저~최고 범위 막대로, 마지막 값은 말풍선으로.
+const S = LifeLogSdk;
+lifelog.ready(async (range, widget) => {
+  const st = widget.settings || {}; const bucketMin = Math.max(5, Number(st.bucket) || 20);
+  const root = document.getElementById("root");
+  let rows = [];
+  try { rows = (await lifelog.query("health/point", { range, where: { metric: "heart_rate" }, limit: 20000 })).rows; } catch (e) { root.textContent = "읽기 실패: " + e.message; return; }
+  if (st.device) rows = rows.filter(r => r.device === st.device);
+  rows = rows.filter(r => r.value != null).sort((a, b) => S.ms(a.time) - S.ms(b.time));
+  if (rows.length === 0) { root.textContent = "심박 기록 없음"; return; }
+  const S0 = S.ms(range.start), E0 = S.ms(range.end), span = E0 - S0, bms = bucketMin * 60000, nb = Math.ceil(span / bms);
+  const buckets = new Array(nb).fill(null);
+  for (const r of rows) { const i = Math.min(nb - 1, Math.floor((S.ms(r.time) - S0) / bms)); const b = buckets[i] || (buckets[i] = { min: Infinity, max: -Infinity, n: 0 }); b.min = Math.min(b.min, r.value); b.max = Math.max(b.max, r.value); b.n++; }
+  const vals = rows.map(r => r.value), lo = Math.min(...vals), hi = Math.max(...vals), avg = vals.reduce((a, b) => a + b, 0) / vals.length, last = rows[rows.length - 1];
+  const yMin = Math.max(0, Math.floor((lo - 10) / 10) * 10), yMax = Math.ceil((hi + 10) / 10) * 10;
+  root.className = ""; root.innerHTML = '<div class="head"></div><div class="chart"></div>';
+  const chart = root.querySelector(".chart");
+  const W = Math.max(200, chart.clientWidth || 600), H = Math.max(100, chart.clientHeight || 200), L = 8, R = 8, T = 30, B = 20, pw = W - L - R, ph = H - T - B;
+  const X = t => L + (t - S0) / span * pw, Y = v => T + ph - (v - yMin) / (yMax - yMin) * ph;
+  let svg = `<svg viewBox="0 0 ${W} ${H}">`;
+  svg += `<line x1="${L}" x2="${W - R}" y1="${T}" y2="${T}" stroke="var(--line)"/><line x1="${L}" x2="${W - R}" y1="${T + ph}" y2="${T + ph}" stroke="var(--line)"/>`;
+  const bw = Math.max(3, pw / nb * 0.55);
+  buckets.forEach((b, i) => {
+    if (!b) return;
+    const x = X(S0 + (i + 0.5) * bms), y0 = Y(b.max), y1 = Y(b.min);
+    svg += `<line x1="${x}" x2="${x}" y1="${y0}" y2="${Math.max(y1, y0 + 3)}" stroke="var(--bar)" stroke-width="${bw}" stroke-linecap="round"><title>${S.fmtTime(S0 + i * bms)}~${S.fmtTime(S0 + (i + 1) * bms)}  ${b.min}~${b.max} bpm (${b.n}개)</title></line>`;
+  });
+  // 마지막 값 말풍선
+  const lx = X(S.ms(last.time)), ly = Y(last.value);
+  svg += `<line x1="${lx}" x2="${lx}" y1="${T - 2}" y2="${ly}" stroke="var(--mute)" stroke-dasharray="2 3"/>`;
+  svg += `<circle cx="${lx}" cy="${ly}" r="6" fill="#f6a5b8" stroke="var(--bar)" stroke-width="2"/>`;
+  svg += `<rect x="${Math.min(W - 44, Math.max(2, lx - 20))}" y="2" width="40" height="18" rx="9" fill="var(--bubble)"/><text x="${Math.min(W - 24, Math.max(22, lx))}" y="15" text-anchor="middle" style="fill:#fff;font-size:12px;font-weight:600">${Math.round(last.value)}</text>`;
+  for (let h = 0; h <= 24; h += 6) { const t = S0 + h * 3600e3; const d = new Date(t); svg += `<text x="${Math.min(W - 12, Math.max(12, X(t)))}" y="${H - 6}" text-anchor="middle">${d.getHours() === 0 ? "자정" : d.getHours() < 12 ? "오전 " + d.getHours() : "오후 " + (d.getHours() === 12 ? 12 : d.getHours() - 12)}</text>`; }
+  svg += "</svg>";
+  root.querySelector(".head").innerHTML = `<b>${Math.round(last.value)}</b><span class="mute">bpm · ${S.fmtTime(last.time)}</span><span class="mute">최저 ${lo} · 최고 ${hi} · 평균 ${Math.round(avg)}</span>`;
+  chart.innerHTML = svg;
+});
+</script></body></html>

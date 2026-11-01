@@ -23,6 +23,8 @@ const DEFAULT_WIDGETS = [
   { type: "widget-category-bars", x: 10, y: 10, w: 10, h: 5 },
   { type: "widget-sunburst", x: 0, y: 15, w: 5, h: 5 },
   { type: "widget-category-tree", x: 5, y: 15, w: 5, h: 5 },
+  { type: "widget-heart-rate", x: 10, y: 15, w: 5, h: 5 },
+  { type: "widget-stress", x: 15, y: 15, w: 5, h: 5 },
 ];
 const defaultWidgets = () => DEFAULT_WIDGETS.map(w => Object.assign({ id: uid(), settings: {} }, w));
 const DEFAULT_VIEWS = [{ id: "default", name: "기본", widgets: DEFAULT_WIDGETS.map((w, i) => Object.assign({ id: "w" + (i + 1), settings: {} }, w)) }];

@@ -1,0 +1,22 @@
+{
+  "type": "renderer",
+  "id": "widget-stress",
+  "version": "1.0.1",
+  "name": "스트레스",
+  "min_host_version": 1,
+  "runtimes": {
+    "webview": "index.html"
+  },
+  "slot": "card",
+  "inputs": [
+    "health/point@1"
+  ],
+  "settings": [
+    {
+      "key": "device",
+      "type": "string",
+      "default": "",
+      "label": "기기 id (비우면 전부)"
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<style>
+  :root { --fg:#ddd; --mute:#888; --line:#2a2a2a; color-scheme: dark; }
+  :root[data-theme="light"] { --fg:#1c1c1e; --mute:#6b6b70; --line:#dcdce0; color-scheme: light; }
+  html, body { height:100%; }
+  body { margin:0; padding:8px 12px 6px; font: 11px/1.3 "Segoe UI Variable", "Segoe UI", sans-serif; color:var(--fg); background:transparent; display:flex; flex-direction:column; }
+  .head { display:flex; gap:14px; align-items:baseline; margin-bottom:4px; }
+  .head b { font-size:22px; font-weight:600; }
+  .head .mute { color:var(--mute); }
+  .chart { flex:1; min-height:0; position:relative; }
+  .chart svg { position:absolute; inset:0; width:100%; height:100%; }
+  text { fill: var(--mute); font-size:10px; }
+  .mute { color:var(--mute); }
+  .none { color:var(--mute); line-height:1.6; }
+</style></head>
+<body><div id="root" class="mute">불러오는 중…</div>
+<script src="https://app.lifelog/sdk.js"></script>
+<script>
+// 스트레스(삼성 헬스 홈 카드 모양). health/point의 metric "stress"(0~100)를 값에 따라 색이 변하는 선으로, 마지막 값은 낮음/보통/높음 말풍선으로.
+// Health Connect에는 스트레스 항목이 없어 삼성 헬스 Data SDK 소스(보류)가 생겨야 값이 들어온다. 그때까지는 "기록 없음".
+const S = LifeLogSdk;
+const level = v => v < 25 ? ["낮음", "#4caf50"] : v < 50 ? ["보통", "#c9b227"] : v < 75 ? ["높음", "#f28c28"] : ["매우 높음", "#e53935"];
+lifelog.ready(async (range, widget) => {
+  const st = widget.settings || {};
+  const root = document.getElementById("root");
+  let rows = [];
+  try { rows = (await lifelog.query("health/point", { range, where: { metric: "stress" }, limit: 20000 })).rows; } catch (e) { root.textContent = "읽기 실패: " + e.message; return; }
+  if (st.device) rows = rows.filter(r => r.device === st.device);
+  rows = rows.filter(r => r.value != null).sort((a, b) => S.ms(a.time) - S.ms(b.time));
+  if (rows.length === 0) { root.className = "none"; root.innerHTML = "스트레스 기록 없음<br><span class=\"mute\">Health Connect에는 스트레스가 없어 삼성 헬스 Data SDK 수집기가 필요합니다(아직 없음).</span>"; return; }
+  const S0 = S.ms(range.start), E0 = S.ms(range.end), span = E0 - S0;
+  root.className = ""; root.innerHTML = '<div class="head"></div><div class="chart"></div>';
+  const chart = root.querySelector(".chart");
+  const W = Math.max(200, chart.clientWidth || 600), H = Math.max(100, chart.clientHeight || 200), L = 8, R = 8, T = 30, B = 20, pw = W - L - R, ph = H - T - B;
+  const X = t => L + (S.ms(t) - S0) / span * pw, Y = v => T + ph - Math.max(0, Math.min(100, v)) / 100 * ph;
+  let svg = `<svg viewBox="0 0 ${W} ${H}">`;
+  svg += `<line x1="${L}" x2="${W - R}" y1="${T}" y2="${T}" stroke="var(--line)"/><line x1="${L}" x2="${W - R}" y1="${T + ph}" y2="${T + ph}" stroke="var(--line)"/>`;
+  // 값에 따라 색이 변하는 선: 이웃한 점 사이를 평균값의 색으로 잇는다. 2시간 넘게 비면 끊는다
+  for (let i = 1; i < rows.length; i++) {
+    const a = rows[i - 1], b = rows[i]; if (S.ms(b.time) - S.ms(a.time) > 2 * 3600e3) continue;
+    svg += `<line x1="${X(a.time)}" y1="${Y(a.value)}" x2="${X(b.time)}" y2="${Y(b.value)}" stroke="${level((a.value + b.value) / 2)[1]}" stroke-width="3" stroke-linecap="round"/>`;
+  }
+  const last = rows[rows.length - 1], [lbl, col] = level(last.value), lx = X(last.time), ly = Y(last.value);
+  svg += `<line x1="${lx}" x2="${lx}" y1="${T - 2}" y2="${ly}" stroke="var(--mute)" stroke-dasharray="2 3"/>`;
+  svg += `<circle cx="${lx}" cy="${ly}" r="7" fill="${col}" fill-opacity=".35"/><circle cx="${lx}" cy="${ly}" r="4" fill="${col}"/>`;
+  const bw = lbl.length * 11 + 16, bx = Math.min(W - bw - 2, Math.max(2, lx - bw / 2));
+  svg += `<rect x="${bx}" y="2" width="${bw}" height="18" rx="9" fill="${col}"/><text x="${bx + bw / 2}" y="15" text-anchor="middle" style="fill:#fff;font-size:12px;font-weight:600">${lbl}</text>`;
+  for (let h = 0; h <= 24; h += 6) { const t = S0 + h * 3600e3; const d = new Date(t); svg += `<text x="${Math.min(W - 12, Math.max(12, L + h / 24 * pw))}" y="${H - 6}" text-anchor="middle">${d.getHours() === 0 ? "자정" : d.getHours() < 12 ? "오전 " + d.getHours() : "오후 " + (d.getHours() === 12 ? 12 : d.getHours() - 12)}</text>`; }
+  svg += "</svg>";
+  const avg = rows.reduce((a, r) => a + r.value, 0) / rows.length;
+  root.querySelector(".head").innerHTML = `<b style="color:${col}">${lbl}</b><span class="mute">${Math.round(last.value)} · ${S.fmtTime(last.time)}</span><span class="mute">평균 ${Math.round(avg)} (${level(avg)[0]})</span>`;
+  chart.innerHTML = svg;
+});
+</script></body></html>
