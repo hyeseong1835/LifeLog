@@ -1,0 +1,35 @@
+{
+  "type": "collector",
+  "id": "phone-media",
+  "version": "1.0.0",
+  "name": "미디어 재생 (안드로이드)",
+  "min_host_version": 1,
+  "runtimes": {
+    "js": "main.js"
+  },
+  "capabilities": [
+    {
+      "id": "event:media",
+      "required": true
+    }
+  ],
+  "outputs": [
+    {
+      "name": "media",
+      "kind": "span",
+      "schema_version": 1,
+      "columns": {
+        "package": "text",
+        "title": "text",
+        "artist": "text",
+        "album": "text",
+        "duration_ms": "bigint"
+      },
+      "label": "title",
+      "identity": [
+        "package",
+        "title"
+      ]
+    }
+  ]
+}

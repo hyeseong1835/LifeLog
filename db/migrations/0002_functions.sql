@@ -317,8 +317,8 @@ BEGIN
           RAISE EXCEPTION '출력 %의 열 %의 타입 %는 허용되지 않습니다', out_name, col_name, col_type;
         END IF;
       END LOOP;
-      IF (out_item->>'label') IS NULL OR NOT (cols ? (out_item->>'label')) OR (cols->>(out_item->>'label')) <> 'text' THEN
-        RAISE EXCEPTION '출력 %의 label은 columns에 있는 text 열이어야 합니다', out_name;
+      IF (out_item->>'label') IS NULL OR NOT (cols ? (out_item->>'label')) THEN
+        RAISE EXCEPTION '출력 %의 label은 columns에 있는 열이어야 합니다', out_name;
       END IF;
       IF out_item ? 'identity' AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(out_item->'identity') c WHERE NOT (cols ? c)) THEN
         RAISE EXCEPTION '출력 %의 identity에 columns에 없는 열이 있습니다', out_name;

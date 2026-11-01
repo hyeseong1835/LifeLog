@@ -1,0 +1,30 @@
+{
+  "type": "collector",
+  "id": "win-power",
+  "version": "1.0.0",
+  "name": "전원·잠금",
+  "min_host_version": 1,
+  "runtimes": {
+    "js": "main.js"
+  },
+  "capabilities": [
+    {
+      "id": "event:power",
+      "required": true
+    }
+  ],
+  "outputs": [
+    {
+      "name": "power",
+      "kind": "event",
+      "schema_version": 1,
+      "columns": {
+        "kind": "text"
+      },
+      "label": "kind",
+      "identity": [
+        "kind"
+      ]
+    }
+  ]
+}

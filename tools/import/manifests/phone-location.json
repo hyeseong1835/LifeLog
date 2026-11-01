@@ -1,0 +1,30 @@
+{
+  "type": "collector",
+  "id": "phone-location",
+  "version": "1.0.0",
+  "name": "위치",
+  "min_host_version": 1,
+  "runtimes": {
+    "js": "main.js"
+  },
+  "capabilities": [
+    {
+      "id": "event:location",
+      "required": true
+    }
+  ],
+  "outputs": [
+    {
+      "name": "point",
+      "kind": "event",
+      "schema_version": 1,
+      "columns": {
+        "lat": "double precision",
+        "lon": "double precision",
+        "accuracy": "double precision"
+      },
+      "label": "lat",
+      "identity": []
+    }
+  ]
+}

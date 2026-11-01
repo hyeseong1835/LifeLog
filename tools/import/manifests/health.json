@@ -1,0 +1,74 @@
+{
+  "type": "collector",
+  "id": "health",
+  "version": "1.0.0",
+  "name": "건강",
+  "min_host_version": 1,
+  "runtimes": {
+    "js": "main.js"
+  },
+  "capabilities": [
+    {
+      "id": "read:health",
+      "required": true
+    },
+    {
+      "id": "read:shealth",
+      "required": false
+    },
+    {
+      "id": "timer",
+      "required": true
+    }
+  ],
+  "outputs": [
+    {
+      "name": "point",
+      "kind": "event",
+      "schema_version": 1,
+      "columns": {
+        "metric": "text",
+        "value": "double precision",
+        "unit": "text"
+      },
+      "label": "metric",
+      "identity": [
+        "metric"
+      ],
+      "index": [
+        "metric"
+      ]
+    },
+    {
+      "name": "span",
+      "kind": "span",
+      "schema_version": 1,
+      "columns": {
+        "metric": "text",
+        "value": "double precision",
+        "category": "text",
+        "extra": "jsonb"
+      },
+      "label": "metric",
+      "identity": [
+        "metric",
+        "category"
+      ],
+      "index": [
+        "metric"
+      ]
+    }
+  ],
+  "settings": [
+    {
+      "key": "metrics",
+      "type": "list",
+      "default": [
+        "steps",
+        "heart_rate",
+        "sleep"
+      ],
+      "label": "읽을 지표"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "type": "collector",
+  "id": "win-afk",
+  "version": "1.0.0",
+  "name": "자리 비움",
+  "min_host_version": 1,
+  "runtimes": {
+    "js": "main.js"
+  },
+  "capabilities": [
+    {
+      "id": "event:idle",
+      "required": true
+    }
+  ],
+  "outputs": [
+    {
+      "name": "afk",
+      "kind": "span",
+      "schema_version": 1,
+      "columns": {
+        "afk": "boolean"
+      },
+      "label": "afk",
+      "identity": [
+        "afk"
+      ]
+    }
+  ]
+}
