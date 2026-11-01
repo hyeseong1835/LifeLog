@@ -68,6 +68,11 @@
   table.unmatched td.num { white-space:nowrap; font-variant-numeric: tabular-nums; }
   table.unmatched td.ex { max-width:520px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   code { font: 12px Consolas, "Cascadia Mono", monospace; }
+  mark { background:#c9a227; color:#000; border-radius:2px; padding:0 1px; }
+  :root[data-theme="light"] mark { background:#ffe066; }
+  table.unmatched.rx tr.ok td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  table.unmatched.rx td.ex { white-space:normal; max-width:640px; }
+  .row.rx input { font: 12px Consolas, "Cascadia Mono", monospace; }
   #pluginsPage .row, #settingsPage .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top:8px; }
   table.plugins, table.rules { border-collapse:collapse; margin-top:8px; width:100%; }
   table.plugins th, table.plugins td, table.rules th, table.rules td { text-align:left; vertical-align:top; padding:6px 8px; border-top:1px solid var(--line); font-size:12px; }

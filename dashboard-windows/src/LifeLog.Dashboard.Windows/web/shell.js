@@ -293,6 +293,7 @@ const SECTIONS = [
   { id: "general", group: "일반", name: "일반" },
   { id: "rules-pc", group: "분류 규칙", name: "컴퓨터" },
   { id: "rules-ph", group: "분류 규칙", name: "휴대폰" },
+  { id: "regex", group: "분류 규칙", name: "정규식 도구" },
 ];
 const escRe = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** 미분류 항목의 이름 제안. 창 제목 끝의 앱 이름("… - Visual Studio Code")을 우선, 없으면 exe·package 이름을 다듬는다. */
@@ -323,6 +324,7 @@ function renderSettingsPage() {
   page.querySelectorAll("[data-sec]").forEach(b => b.onclick = () => { settingsSection = b.dataset.sec; renderSettingsPage(); });
   const c = $("#settingsContent");
   if (settingsSection === "general") renderGeneral(c);
+  else if (settingsSection === "regex") renderRegexTool(c);
   else renderRules(c, settingsSection === "rules-pc" ? "pc" : "ph");
 }
 
@@ -435,6 +437,78 @@ function renderRules(c, kind) {
 /** 저장 전 정리: 이름 없는 규칙은 버리고, 빈 children은 지운다. */
 function pruneRules(rules) {
   return (rules || []).filter(r => r.name).map(r => { const o = { name: r.name, app: r.app || "", title: r.title || "" }; if (r.color) o.color = r.color; const ch = pruneRules(r.children); if (ch.length) o.children = ch; return o; });
+}
+
+// ---- 정규식 도구: 최근 데이터에 app·title 정규식을 대 보고 일치한 부분을 강조한다 ----
+const regexTool = { kind: "pc", app: "", title: "", days: 7, only: true, cache: {} };
+function renderRegexTool(c) {
+  const t = regexTool;
+  c.innerHTML = `<h2>정규식 도구</h2>
+    <p class="mute">규칙에 쓸 정규식을 실제 기록(최근 ${t.days}일, 시간 많은 순)에 대 봅니다. 대소문자 무시. 일치한 부분은 <mark>이렇게</mark> 표시됩니다. app·title 둘 다 적으면 둘 다 맞아야 일치입니다.</p>
+    <div class="row">
+      <label>대상 <select id="rxKind"><option value="pc" ${t.kind === "pc" ? "selected" : ""}>컴퓨터(창)</option><option value="ph" ${t.kind === "ph" ? "selected" : ""}>휴대폰(package)</option></select></label>
+      <label>기간 <select id="rxDays">${[1, 7, 30].map(d => `<option value="${d}" ${t.days === d ? "selected" : ""}>${d}일</option>`).join("")}</select></label>
+      <label><input type="checkbox" id="rxOnly" ${t.only ? "checked" : ""}> 일치한 것만</label>
+    </div>
+    <div class="row rx">
+      <label>${t.kind === "pc" ? "app (exe 이름)" : "package"} <input id="rxApp" value="${esc(t.app)}" placeholder="예: ^msedge\\.exe$" size="28"></label>
+      ${t.kind === "pc" ? `<label>title (창 제목) <input id="rxTitle" value="${esc(t.title)}" placeholder="예: YouTube|유튜브" size="40"></label>` : ""}
+      <button id="rxAdd" title="이 조건으로 규칙 줄을 만든다">규칙으로 추가</button>
+    </div>
+    <div id="rxMsg" class="mute"></div>
+    <div id="rxOut" class="mute">불러오는 중…</div>`;
+  const rerun = () => { t.app = $("#rxApp").value; t.title = $("#rxTitle") ? $("#rxTitle").value : ""; runRegexTool(c); };
+  $("#rxKind").onchange = () => { t.kind = $("#rxKind").value; t.title = ""; renderRegexTool(c); };
+  $("#rxDays").onchange = () => { t.days = Number($("#rxDays").value); runRegexTool(c, true); };
+  $("#rxOnly").onchange = () => { t.only = $("#rxOnly").checked; runRegexTool(c); };
+  let timer = null;
+  for (const id of ["rxApp", "rxTitle"]) { const el = $("#" + id); if (el) el.oninput = () => { clearTimeout(timer); timer = setTimeout(rerun, 250); }; }
+  $("#rxAdd").onclick = () => {
+    const key = t.kind === "pc" ? "categories" : "phone_categories";
+    if (!Array.isArray(settings[key])) settings[key] = [];
+    settings[key].push({ name: "", app: $("#rxApp").value, title: $("#rxTitle") ? $("#rxTitle").value : "" });
+    settingsSection = t.kind === "pc" ? "rules-pc" : "rules-ph"; renderSettingsPage();
+    const inputs = $("#settingsContent").querySelectorAll('input[data-k="name"]'); inputs[inputs.length - 1]?.focus();
+  };
+  runRegexTool(c, true);
+}
+async function runRegexTool(c, reload = false) {
+  const t = regexTool, out = c.querySelector("#rxOut"), msg = c.querySelector("#rxMsg");
+  if (!out) return;
+  const cacheKey = t.kind + ":" + t.days;
+  if (reload || !t.cache[cacheKey]) {
+    out.className = "mute"; out.textContent = "불러오는 중…";
+    const end = new Date(), start = new Date(end.getTime() - t.days * 86400e3), range = { start: start.toISOString(), end: end.toISOString() };
+    try {
+      const res = t.kind === "pc"
+        ? await lifelog.query("win-window/window", { range, group: { by: ["app", "title"] }, agg: { dur: "duration" }, limit: 20000 })
+        : await lifelog.query("phone-app/app", { range, group: { by: ["package"] }, agg: { dur: "duration" }, limit: 20000 });
+      t.cache[cacheKey] = res.rows.map(r => ({ app: r.app ?? r.package ?? "", title: r.title ?? "", sec: Number(r.dur) || 0 })).sort((a, b) => b.sec - a.sec);
+    } catch (e) { out.textContent = "불러오지 못함: " + e.message; return; }
+  }
+  const rows = t.cache[cacheKey];
+  let reApp = null, reTitle = null;
+  try { if (t.app) reApp = new RegExp(t.app, "gi"); if (t.title) reTitle = new RegExp(t.title, "gi"); }
+  catch (e) { msg.innerHTML = `<span class="warn">정규식 오류: ${esc(e.message)}</span>`; return; }
+  const hl = (text, re) => {   // 일치한 부분을 <mark>로
+    if (!re) return esc(text);
+    let outs = "", last = 0, m; re.lastIndex = 0;
+    while ((m = re.exec(text)) !== null) { if (m[0] === "") { re.lastIndex++; continue; } outs += esc(text.slice(last, m.index)) + "<mark>" + esc(m[0]) + "</mark>"; last = m.index + m[0].length; }
+    return outs + esc(text.slice(last));
+  };
+  const test = (re, text) => { if (!re) return true; re.lastIndex = 0; return re.test(text); };
+  let matched = 0, matchedSec = 0, totalSec = 0;
+  const lines = [];
+  for (const r of rows) {
+    const ok = (reApp || reTitle) ? (test(reApp, r.app) && test(reTitle, r.title)) : false;
+    totalSec += r.sec; if (ok) { matched++; matchedSec += r.sec; }
+    if (t.only && !ok) continue;
+    if (lines.length < 200) lines.push(`<tr class="${ok ? "ok" : ""}"><td class="num">${ok ? "✓" : ""}</td><td><code>${hl(r.app, reApp)}</code></td>${t.kind === "pc" ? `<td class="ex">${hl(r.title, reTitle)}</td>` : ""}<td class="num">${LifeLogSdk.fmtDur(r.sec * 1000)}</td></tr>`);
+  }
+  msg.innerHTML = (reApp || reTitle) ? `일치 <b>${matched}</b> / ${rows.length}개 · ${LifeLogSdk.fmtDur(matchedSec * 1000)} / ${LifeLogSdk.fmtDur(totalSec * 1000)}` : `정규식을 입력하면 ${rows.length}개 항목에 대 봅니다.`;
+  out.className = "";
+  out.innerHTML = lines.length ? `<table class="unmatched rx"><thead><tr><th></th><th>${t.kind === "pc" ? "앱" : "package"}</th>${t.kind === "pc" ? "<th>창 제목</th>" : ""}<th>시간</th></tr></thead><tbody>${lines.join("")}</tbody></table>${rows.length > 200 && !t.only ? '<div class="mute">… 200개까지만 표시</div>' : ""}`
+    : `<div class="mute">${t.only && (reApp || reTitle) ? "일치하는 항목이 없습니다." : ""}</div>`;
 }
 
 async function renderUnmatched(el, kind, R, collect) {
