@@ -350,25 +350,38 @@ function renderGeneral(c) {
   $("#saveGeneral").onclick = async () => { pendingSave = null; clearTimeout(pendingTimer); await saveGeneral(); };
 }
 
-/** 규칙 트리 유틸. path는 "0.2.1"처럼 자식 인덱스를 점으로 이은 문자열. */
-const ruleAt = (rules, path) => path.split(".").reduce((list, i, k, arr) => k === arr.length - 1 ? list[Number(i)] : (list[Number(i)].children || []), rules);
-const listOf = (rules, path) => { const idx = path.split("."); let list = rules; for (let k = 0; k < idx.length - 1; k++) list = list[Number(idx[k])].children; return { list, i: Number(idx[idx.length - 1]) }; };
-function flattenRules(rules, depth = 0, prefix = "") {
+/** 옛 트리 규칙을 평탄하게: 자식은 부모 바로 앞에(구체적인 것이 먼저 맞게) 꺼내고, 이름은 "부모/자식", 조건은 부모와 합친다. */
+function flattenRuleTree(rules, parent = null) {
   const out = [];
-  (rules || []).forEach((r, i) => { const path = prefix ? `${prefix}.${i}` : String(i); out.push({ r, path, depth }); out.push(...flattenRules(r.children, depth + 1, path)); });
+  for (const r of rules || []) {
+    if (!r) continue;
+    const name = parent ? parent.name + "/" + r.name : r.name;
+    const both = (a, b) => b || a || "";   // 자식이 같은 칸을 가지면 자식 것(더 구체적)을 쓴다
+    const flat = { name, app: parent ? both(parent.app, r.app) : (r.app || ""), title: parent ? both(parent.title, r.title) : (r.title || "") };
+    if (r.color) flat.color = r.color;
+    if (r.children && r.children.length) out.push(...flattenRuleTree(r.children, flat));
+    out.push(flat);
+  }
   return out;
 }
+function migrateRules() {
+  let changed = false;
+  for (const key of ["categories", "phone_categories"]) {
+    const rules = settings[key];
+    if (Array.isArray(rules) && rules.some(r => r && r.children && r.children.length)) { settings[key] = flattenRuleTree(rules); changed = true; }
+  }
+  return changed;
+}
 
-/** 분류 규칙 편집(트리) + 최근 7일 미분류 목록(사용 시간 순). kind: pc(app·title) | ph(package) */
+/** 분류 규칙 편집(평탄 목록) + 최근 7일 미분류 목록(사용 시간 순). kind: pc(app·title) | ph(package) */
 function renderRules(c, kind) {
   const key = kind === "pc" ? "categories" : "phone_categories";
   if (!Array.isArray(settings[key])) settings[key] = [];
   const R = () => settings[key];   // 저장하면 settings가 새 객체로 바뀌므로 배열을 붙들지 않는다
   const rules = R();
   const cols = kind === "pc" ? [["app", "app (exe 이름)"], ["title", "title (창 제목)"]] : [["app", "package"]];
-  const rows = flattenRules(rules);
   LifeLogSdk.useRuleColors(settings.categories, settings.phone_categories);
-  const autoColor = path => LifeLogSdk.categoryColor(path);
+  const autoColor = name => LifeLogSdk.categoryColor(name);
   const hex = col => { // hsl(…)·#rgb → #rrggbb (color 입력은 #rrggbb만 받는다)
     const m = /hsl\((\d+) (\d+)% (\d+)%\)/.exec(col);
     if (!m) return /^#[0-9a-f]{6}$/i.test(col) ? col : "#888888";
@@ -386,16 +399,16 @@ function renderRules(c, kind) {
     if ((m = /^hsla?\s*\(\s*(\d+)\s*[, ]\s*(\d+)%\s*[, ]\s*(\d+)%/i.exec(t))) return hex(`hsl(${m[1]} ${m[2]}% ${m[3]}%)`);
     return null;
   };
-  const pathName = path => path.split(".").reduce((acc, i, k, arr) => { const list = k === 0 ? rules : acc.node.children; const r = list[Number(i)]; return { node: r, name: acc.name ? acc.name + "/" + r.name : r.name }; }, { node: null, name: "" }).name;
   c.innerHTML = `<h2>분류 규칙 › ${kind === "pc" ? "컴퓨터" : "휴대폰"}</h2>
-    <p class="mute">위에서부터 처음 맞는 규칙을 쓴다. 정규식, 대소문자 무시. 규칙에 <b>자식</b>을 두면 부모가 맞을 때만 자식을 검사하고, 맞는 자식이 있으면 그 자식("부모/자식"), 없으면 부모로 분류한다. <b>색</b>은 비우면 이름에서 자동으로 정해지고, 자식은 부모 색을 물려받는다.
+    <p class="mute">위에서부터 처음 맞는 규칙을 쓴다. 정규식, 대소문자 무시. 이름에 /를 넣으면 계층("개발/VSCode")이고 위젯은 마지막 조각("VSCode")을 보여 준다. 구체적인 규칙을 위에 둔다. <b>색</b>은 비우면 자동이고, "개발/VSCode"처럼 하위 이름은 "개발"의 색을 물려받는다.
     ${kind === "pc" ? "app은 exe 이름(예: ^msedge\\.exe$), title은 창 제목(예: YouTube)." : "app 칸에 package 이름(예: ^com\\.google\\.android\\.youtube$)."}</p>
-    <table class="rules"><thead><tr><th>이름</th>${cols.map(x => `<th>${esc(x[1])}</th>`).join("")}<th style="width:170px">색</th><th style="width:150px"></th></tr></thead><tbody>
-    ${rows.map(({ r, path, depth }) => `<tr class="depth${Math.min(depth, 4)}"><td><span class="indent" style="width:${depth * 18}px"></span>${depth ? '<span class="mute">└ </span>' : ""}<input data-p="${path}" data-k="name" value="${esc(r.name)}" placeholder="${depth ? "자식 이름" : "이름"}"></td>${cols.map(x => `<td><input data-p="${path}" data-k="${x[0]}" value="${esc(r[x[0]] || "")}"></td>`).join("")}<td class="color"><input type="color" data-p="${path}" data-k="color" value="${hex(r.color || autoColor(pathName(path)))}" title="${r.color ? "지정한 색" : "자동(비우려면 ×)"}"><input class="ctext" data-ctext="${path}" value="${r.color ? esc(r.color) : ""}" placeholder="#hex / r, g, b" title="#rrggbb, rgb(r, g, b), r, g, b 를 붙여 넣을 수 있다"><button data-clear="${path}" title="자동 색으로" ${r.color ? "" : "disabled"}>×</button></td><td class="tools"><button data-child="${path}" title="이 규칙 아래에 자식 추가">자식</button><button data-up="${path}" title="위로">↑</button><button data-del="${path}" title="지우기">✕</button></td></tr>`).join("")}
+    <table class="rules"><thead><tr><th style="width:28px"></th><th>이름</th>${cols.map(x => `<th>${esc(x[1])}</th>`).join("")}<th style="width:170px">색</th><th style="width:90px"></th></tr></thead><tbody>
+    ${rules.map((r, i) => `<tr><td class="mute">${i + 1}</td><td><input data-p="${i}" data-k="name" value="${esc(r.name)}" placeholder="이름 (계층은 /)"></td>${cols.map(x => `<td><input data-p="${i}" data-k="${x[0]}" value="${esc(r[x[0]] || "")}"></td>`).join("")}<td class="color"><input type="color" data-p="${i}" data-k="color" value="${hex(r.color || autoColor(r.name || "?"))}" title="${r.color ? "지정한 색" : "자동(비우려면 ×)"}"><input class="ctext" data-ctext="${i}" value="${r.color ? esc(r.color) : ""}" placeholder="#hex / r, g, b" title="#rrggbb, rgb(r, g, b), r, g, b 를 붙여 넣을 수 있다"><button data-clear="${i}" title="자동 색으로" ${r.color ? "" : "disabled"}>×</button></td><td class="tools"><button data-up="${i}" title="위로">↑</button><button data-down="${i}" title="아래로">↓</button><button data-del="${i}" title="지우기">✕</button></td></tr>`).join("")}
     </tbody></table>
-    <div class="row"><button id="addRule">규칙 추가</button><button id="saveRules">저장</button><span id="ruleMsg" class="mute"></span></div>
+    <div class="row"><button id="addRule">규칙 추가</button><button id="saveRules">지금 저장</button><span id="ruleMsg" class="mute"></span></div>
     <h3>최근 7일 미분류 <span class="mute">어느 규칙에도 안 맞는 ${kind === "pc" ? "앱" : "package"}, 사용 시간 순. "추가"를 누르면 그 ${kind === "pc" ? "앱" : "package"}으로 새 규칙 줄을 만들고 이름을 제안한다</span></h3>
     <div id="unmatched" class="mute">불러오는 중…</div>`;
+  const ruleAt = (list, p) => list[Number(p)];
   const collect = () => c.querySelectorAll("input[data-p]").forEach(el => {
     const r = ruleAt(R(), el.dataset.p); if (!r) return;
     if (el.dataset.k === "color") { if (el.dataset.touched === "1" || r.color) r.color = el.value; }   // 손대지 않은 자동 색은 저장하지 않는다
@@ -408,14 +421,6 @@ function renderRules(c, kind) {
       el.classList.remove("bad"); const picker = el.previousElementSibling; picker.value = v; picker.dataset.touched = "1"; el.value = v; el.nextElementSibling.disabled = false;
     };
     el.onchange = apply; el.onpaste = () => setTimeout(apply, 0);
-  });
-  c.querySelectorAll("[data-clear]").forEach(b => b.onclick = () => { collect(); const r = ruleAt(R(), b.dataset.clear); if (r) delete r.color; rerenderAndSave(); });
-  const rerenderAndSave = () => { renderSettingsPage(); scheduleSave(async () => { const cc = $("#settingsContent"); if (cc) await cc._saveNow?.(); }, 200); };
-  c.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { collect(); const { list, i } = listOf(R(), b.dataset.del); list.splice(i, 1); rerenderAndSave(); });
-  c.querySelectorAll("[data-up]").forEach(b => b.onclick = () => { collect(); const { list, i } = listOf(R(), b.dataset.up); if (i === 0) return; const r = list.splice(i, 1)[0]; list.splice(i - 1, 0, r); rerenderAndSave(); });
-  c.querySelectorAll("[data-child]").forEach(b => b.onclick = () => {
-    collect(); const r = ruleAt(R(), b.dataset.child); (r.children || (r.children = [])).push({ name: "", app: "", title: "" }); renderSettingsPage();
-    const inputs = $("#settingsContent").querySelectorAll(`input[data-p^="${b.dataset.child}."][data-k="name"]`); inputs[inputs.length - 1]?.focus();
   });
   // 저장: 편집 중인 배열은 그대로 두고(이름 없는 줄도 유지) 정리한 사본을 파일에 쓴다. 위젯은 파일을 읽으므로 다시 그린다.
   const saveNow = async () => {
@@ -430,13 +435,18 @@ function renderRules(c, kind) {
   c._saveNow = saveNow;
   c.querySelectorAll("input[data-p], input[data-ctext]").forEach(el => el.addEventListener("input", () => scheduleSave(saveNow)));
   c.querySelectorAll("input[data-ctext]").forEach(el => el.addEventListener("change", () => scheduleSave(saveNow, 100)));
+  const rerenderAndSave = () => { renderSettingsPage(); scheduleSave(async () => { const cc = $("#settingsContent"); if (cc) await cc._saveNow?.(); }, 200); };
+  c.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { collect(); R().splice(Number(b.dataset.del), 1); rerenderAndSave(); });
+  c.querySelectorAll("[data-up]").forEach(b => b.onclick = () => { collect(); const i = Number(b.dataset.up); if (i === 0) return; const r = R().splice(i, 1)[0]; R().splice(i - 1, 0, r); rerenderAndSave(); });
+  c.querySelectorAll("[data-down]").forEach(b => b.onclick = () => { collect(); const i = Number(b.dataset.down); if (i >= R().length - 1) return; const r = R().splice(i, 1)[0]; R().splice(i + 1, 0, r); rerenderAndSave(); });
+  c.querySelectorAll("[data-clear]").forEach(b => b.onclick = () => { collect(); const r = ruleAt(R(), b.dataset.clear); if (r) delete r.color; rerenderAndSave(); });
   $("#addRule").onclick = () => { collect(); R().push({ name: "", app: "", title: "" }); renderSettingsPage(); };
   $("#saveRules").onclick = async () => { pendingSave = null; clearTimeout(pendingTimer); await saveNow(); };
   renderUnmatched(c.querySelector("#unmatched"), kind, R, collect);
 }
-/** 저장 전 정리: 이름 없는 규칙은 버리고, 빈 children은 지운다. */
+/** 저장 전 정리: 이름 없는 규칙은 버린다. */
 function pruneRules(rules) {
-  return (rules || []).filter(r => r.name).map(r => { const o = { name: r.name, app: r.app || "", title: r.title || "" }; if (r.color) o.color = r.color; const ch = pruneRules(r.children); if (ch.length) o.children = ch; return o; });
+  return (rules || []).filter(r => r && r.name).map(r => { const o = { name: r.name, app: r.app || "", title: r.title || "" }; if (r.color) o.color = r.color; return o; });
 }
 
 // ---- 정규식 도구: 최근 데이터에 app·title 정규식을 대 보고 일치한 부분을 강조한다 ----
@@ -554,6 +564,7 @@ async function init() {
     if (!Array.isArray(settings.categories)) settings.categories = [];
     if (!Array.isArray(settings.phone_categories)) settings.phone_categories = [];
     if (settings.views.map(migrateView).some(Boolean)) await saveSettings();
+    if (migrateRules()) await saveSettings();   // 옛 자식 규칙을 부모 밖으로
     if (!settings.grid || !settings.grid.cell) { settings.grid = { cell: 60, gap: 10 }; await saveSettings(); }
     applyTheme();
     if (!viewId) viewId = settings.views[0].id;

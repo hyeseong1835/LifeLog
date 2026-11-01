@@ -74,23 +74,22 @@
     return out;
   }
   /**
-   * 분류 규칙 트리 [{ name, app, title, children?: [...] }](정규식, 대소문자 무시).
-   * 위에서부터 처음 맞는 규칙을 고른다. 맞은 규칙에 자식이 있으면 자식들을 같은 방식으로 검사해 맞는 자식의 경로("부모/자식")를,
-   * 어느 자식도 안 맞으면 부모 이름을 돌려준다. 부모가 안 맞으면 자식은 보지 않는다. 아무것도 안 맞으면 null.
+   * 분류 규칙 [{ name, app, title, color? }](정규식, 대소문자 무시). 위에서부터 처음 맞는 규칙의 name을 돌려준다. 없으면 null.
+   * 이름의 "/"가 계층이다("개발/VSCode"). 구체적인 규칙을 위에 두면 먼저 맞는다. 자식 규칙 개념은 없다(2026-11-02 제거).
    */
   function matchRules(rules, app, title) {
     for (const r of rules || []) {
-      if (!r || !r.name) continue;
-      let ok = false;
+      if (!r || !r.name || (!r.app && !r.title)) continue;
       try {
-        ok = (r.app || r.title) && (!r.app || new RegExp(r.app, "i").test(app || "")) && (!r.title || new RegExp(r.title, "i").test(title || ""));
-      } catch (e) { ok = false; /* 잘못된 정규식은 건너뜀 */ }
-      if (!ok) continue;
-      const child = r.children && r.children.length ? matchRules(r.children, app, title) : null;
-      return child ? r.name + "/" + child : r.name;
+        if (r.app && !new RegExp(r.app, "i").test(app || "")) continue;
+        if (r.title && !new RegExp(r.title, "i").test(title || "")) continue;
+        return r.name;
+      } catch (e) { /* 잘못된 정규식은 건너뜀 */ }
     }
     return null;
   }
+  /** 경로의 마지막 조각("개발/VSCode" → "VSCode"). 렌더러는 이것을 보여 준다. */
+  const leafName = path => String(path).split("/").pop();
   function fmtDur(ms) {
     const m = Math.round(ms / 60000); if (m < 1) return ms >= 1000 ? Math.round(ms / 1000) + "초" : "0분";
     const h = Math.floor(m / 60); return h ? `${h}시간 ${m % 60}분` : `${m}분`;
@@ -132,9 +131,7 @@
   }
   /** 규칙에 적힌 색(경로 → color). categorize가 규칙을 받을 때 채운다. */
   const ruleColors = new Map();
-  function collectColors(rules, prefix = "") {
-    for (const r of rules || []) { if (!r || !r.name) continue; const path = prefix ? prefix + "/" + r.name : r.name; if (r.color) ruleColors.set(path, r.color); collectColors(r.children, path); }
-  }
+  function collectColors(rules) { for (const r of rules || []) if (r && r.name && r.color) ruleColors.set(r.name, r.color); }
   function useRuleColors(pcRules, phRules) { ruleColors.clear(); collectColors(pcRules); collectColors(phRules); }
   /** 분류 색: 규칙에 색이 있으면 그것(가장 가까운 상위 규칙의 색을 물려받음), 없으면 최상위 이름 해시. 모든 위젯에서 같다. 미분류는 회색. */
   function categoryColor(path) {
@@ -159,5 +156,5 @@
     return root;
   }
 
-  g.LifeLogSdk = { categorize, categoryColor, categoryTree, useRuleColors, UNCATEGORIZED, clip, subtract, merge, sumMs, groupSum, bucketHours, pairEvents, matchRules, fmtDur, fmtTime, hashColor, esc, activeWindows, ms: t };
+  g.LifeLogSdk = { categorize, categoryColor, categoryTree, useRuleColors, leafName, UNCATEGORIZED, clip, subtract, merge, sumMs, groupSum, bucketHours, pairEvents, matchRules, fmtDur, fmtTime, hashColor, esc, activeWindows, ms: t };
 })(typeof window !== "undefined" ? window : globalThis);

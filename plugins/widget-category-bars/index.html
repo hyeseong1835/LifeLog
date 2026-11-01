@@ -25,11 +25,11 @@ lifelog.ready(async (range, widget) => {
   if (entries.length === 0) { root.textContent = "기록 없음"; return; }
   // 시간 버킷 × 분류
   const S0 = S.ms(range.start), E0 = S.ms(range.end), hours = Math.round((E0 - S0) / 3600e3);
-  const cats = new Map();   // top → [ms per hour]
+  const cats = new Map();   // 가장 아래 분류(path) → [ms per hour]
   for (const en of entries) {
-    const arr = cats.get(en.top) || new Array(hours).fill(0);
+    const arr = cats.get(en.path) || new Array(hours).fill(0);
     for (let h = 0; h < hours; h++) { const a = Math.max(S0 + h * 3600e3, en.s), b = Math.min(S0 + (h + 1) * 3600e3, en.e); if (b > a) arr[h] += b - a; }
-    cats.set(en.top, arr);
+    cats.set(en.path, arr);
   }
   const order = [...cats.entries()].sort((a, b) => b[1].reduce((x, y) => x + y, 0) - a[1].reduce((x, y) => x + y, 0));
   // 그리기
@@ -46,7 +46,7 @@ lifelog.ready(async (range, widget) => {
     if (h % 2 === 0) svg += `<text x="${L + h * bw + bw / 2}" y="${H - 4}" text-anchor="middle">${new Date(S0 + h * 3600e3).getHours()}</text>`;
   }
   svg += "</svg>";
-  root.className = ""; root.innerHTML = svg + `<div class="legend">${order.map(([top, arr]) => `<span><i style="background:${S.categoryColor(top)}"></i>${S.esc(top)} ${S.fmtDur(arr.reduce((x, y) => x + y, 0))}</span>`).join("")}</div>`;
+  root.className = ""; root.innerHTML = svg + `<div class="legend">${order.map(([top, arr]) => `<span title="${S.esc(top)}"><i style="background:${S.categoryColor(top)}"></i>${S.esc(S.leafName(top))} ${S.fmtDur(arr.reduce((x, y) => x + y, 0))}</span>`).join("")}</div>`;
   document.body.appendChild(root);
 });
 </script></body></html>

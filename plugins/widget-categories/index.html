@@ -24,9 +24,9 @@ lifelog.ready(async (range, widget) => {
   const root = document.getElementById("root");
   const [win, afk, app, settings] = await Promise.all([q("win-window/window", { range, limit: 20000 }), q("win-afk/afk", { range, limit: 5000 }), q("phone-app/app", { range, limit: 20000 }), lifelog.settings()]);
   const entries = S.categorize({ win, afk, app, range, devices, pcRules: settings.categories || [], phRules: settings.phone_categories || [] });
+  // 가장 아래 분류(규칙 이름 그대로)별 합계. "개발/VSCode"는 VSCode로 보여 준다
   const sums = new Map(); let n = entries.length, missingRules = [];
-  const add = (name, ms) => { const parts = name.split("/"); for (let i = 1; i <= parts.length; i++) { const k = parts.slice(0, i).join("/"); sums.set(k, (sums.get(k) || 0) + ms); } };
-  for (const en of entries) add(en.path, en.e - en.s);
+  for (const en of entries) sums.set(en.path, (sums.get(en.path) || 0) + (en.e - en.s));
   if (entries.some(en => !en.app.startsWith("📱")) && !(settings.categories || []).length) missingRules.push("컴퓨터");
   if (entries.some(en => en.app.startsWith("📱")) && !(settings.phone_categories || []).length) missingRules.push("휴대폰");
   const pcDevices = [...new Set(entries.filter(en => !en.app.startsWith("📱")).map(en => en.device))], phDevices = [...new Set(entries.filter(en => en.app.startsWith("📱")).map(en => en.device))];
@@ -35,7 +35,7 @@ lifelog.ready(async (range, widget) => {
   const max = groups[0].ms;
   root.className = "";
   root.innerHTML = groups.slice(0, limit).map(g => `<div class="row" title="${S.esc(g.key)}">
-    <div class="bar" style="width:${Math.max(2, g.ms / max * 100)}%;background:${S.categoryColor(g.key)};padding-left:${5 + (g.key.split("/").length - 1) * 10}px">${S.esc(g.key)}</div><div class="dur">${S.fmtDur(g.ms)}</div></div>`).join("") +
+    <div class="bar" style="width:${Math.max(2, g.ms / max * 100)}%;background:${S.categoryColor(g.key)}">${S.esc(S.leafName(g.key))}</div><div class="dur">${S.fmtDur(g.ms)}</div></div>`).join("") +
     `<div class="mute" style="margin-top:6px">${[...pcDevices, ...phDevices].join(", ")}${missingRules.length ? ` · ${[...new Set(missingRules)].join("·")} 규칙 없음(설정)` : ""}</div>`;
 });
 </script></body></html>
