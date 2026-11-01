@@ -276,6 +276,17 @@ function renderTabs() {
   if (add) add.onclick = async () => { const n = prompt("새 뷰 이름"); if (!n) return; const v = { id: uid(), name: n, widgets: [] }; settings.views.push(v); viewId = v.id; await saveSettings(); load(); };
 }
 
+// ---- 설정 자동 저장: 입력이 멈추면 저장하고, 설정 페이지를 떠날 때는 바로 저장한다 ----
+let pendingSave = null, pendingTimer = null;
+function scheduleSave(fn, delay = 800) {
+  pendingSave = fn; clearTimeout(pendingTimer);
+  pendingTimer = setTimeout(flushSave, delay);
+}
+async function flushSave() {
+  clearTimeout(pendingTimer); const fn = pendingSave; pendingSave = null;
+  if (fn) { try { await fn(); } catch (e) { alert("설정 저장 실패: " + e.message); } }
+}
+
 // ---- 설정 페이지: 사이드바(일반 / 분류 규칙 › 컴퓨터·휴대폰) + 내용 ----
 let settingsSection = "general";
 const SECTIONS = [
@@ -325,13 +336,16 @@ function renderGeneral(c) {
       <label>한 칸 <input id="gridCell" type="number" value="${u.cell}" size="5"></label> <label>간격 <input id="gridGap" type="number" value="${u.gap}" size="4"></label></div>
     <div class="row"><button id="saveGeneral">저장</button><span id="generalMsg" class="mute"></span></div>`;
   $("#theme").value = settings.theme || "system";
-  $("#theme").onchange = () => { settings.theme = $("#theme").value; applyTheme(); };
-  $("#saveGeneral").onclick = async () => {
+  const saveGeneral = async () => {
     settings.theme = $("#theme").value;
     settings.day_start = $("#dayStart").value.trim() || "04:00";
     settings.grid = { cell: Number($("#gridCell").value) || 60, gap: Number($("#gridGap").value) || 0 };
-    await saveSettings(); applyTheme(); $("#generalMsg").textContent = "저장됨"; load();
+    await saveSettings(); applyTheme(); load();
+    const msg = $("#generalMsg"); if (msg) msg.textContent = "저장됨";
   };
+  $("#theme").onchange = () => { settings.theme = $("#theme").value; applyTheme(); scheduleSave(saveGeneral, 100); };
+  for (const id of ["dayStart", "gridCell", "gridGap"]) $("#" + id).onchange = () => scheduleSave(saveGeneral, 300);
+  $("#saveGeneral").onclick = async () => { pendingSave = null; clearTimeout(pendingTimer); await saveGeneral(); };
 }
 
 /** 규칙 트리 유틸. path는 "0.2.1"처럼 자식 인덱스를 점으로 이은 문자열. */
@@ -393,15 +407,29 @@ function renderRules(c, kind) {
     };
     el.onchange = apply; el.onpaste = () => setTimeout(apply, 0);
   });
-  c.querySelectorAll("[data-clear]").forEach(b => b.onclick = () => { collect(); const r = ruleAt(R(), b.dataset.clear); if (r) delete r.color; renderSettingsPage(); });
-  c.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { collect(); const { list, i } = listOf(R(), b.dataset.del); list.splice(i, 1); renderSettingsPage(); });
-  c.querySelectorAll("[data-up]").forEach(b => b.onclick = () => { collect(); const { list, i } = listOf(R(), b.dataset.up); if (i === 0) return; const r = list.splice(i, 1)[0]; list.splice(i - 1, 0, r); renderSettingsPage(); });
+  c.querySelectorAll("[data-clear]").forEach(b => b.onclick = () => { collect(); const r = ruleAt(R(), b.dataset.clear); if (r) delete r.color; rerenderAndSave(); });
+  const rerenderAndSave = () => { renderSettingsPage(); scheduleSave(async () => { const cc = $("#settingsContent"); if (cc) await cc._saveNow?.(); }, 200); };
+  c.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { collect(); const { list, i } = listOf(R(), b.dataset.del); list.splice(i, 1); rerenderAndSave(); });
+  c.querySelectorAll("[data-up]").forEach(b => b.onclick = () => { collect(); const { list, i } = listOf(R(), b.dataset.up); if (i === 0) return; const r = list.splice(i, 1)[0]; list.splice(i - 1, 0, r); rerenderAndSave(); });
   c.querySelectorAll("[data-child]").forEach(b => b.onclick = () => {
     collect(); const r = ruleAt(R(), b.dataset.child); (r.children || (r.children = [])).push({ name: "", app: "", title: "" }); renderSettingsPage();
     const inputs = $("#settingsContent").querySelectorAll(`input[data-p^="${b.dataset.child}."][data-k="name"]`); inputs[inputs.length - 1]?.focus();
   });
+  // 저장: 편집 중인 배열은 그대로 두고(이름 없는 줄도 유지) 정리한 사본을 파일에 쓴다. 위젯은 파일을 읽으므로 다시 그린다.
+  const saveNow = async () => {
+    if (!document.body.contains(c)) return;
+    collect();
+    const copy = Object.assign({}, settings, { [key]: pruneRules(R()) });
+    await lifelog.setSettings(copy);
+    load();
+    const msg = $("#ruleMsg"); if (msg) { msg.textContent = "저장됨 " + new Date().toLocaleTimeString("ko-KR", { hour12: false }); }
+    const um = c.querySelector("#unmatched"); if (um) renderUnmatched(um, kind, () => pruneRules(R()), collect);
+  };
+  c._saveNow = saveNow;
+  c.querySelectorAll("input[data-p], input[data-ctext]").forEach(el => el.addEventListener("input", () => scheduleSave(saveNow)));
+  c.querySelectorAll("input[data-ctext]").forEach(el => el.addEventListener("change", () => scheduleSave(saveNow, 100)));
   $("#addRule").onclick = () => { collect(); R().push({ name: "", app: "", title: "" }); renderSettingsPage(); };
-  $("#saveRules").onclick = async () => { collect(); settings[key] = pruneRules(R()); await saveSettings(); load(); renderSettingsPage(); $("#ruleMsg").textContent = "저장됨"; };
+  $("#saveRules").onclick = async () => { pendingSave = null; clearTimeout(pendingTimer); await saveNow(); };
   renderUnmatched(c.querySelector("#unmatched"), kind, R, collect);
 }
 /** 저장 전 정리: 이름 없는 규칙은 버리고, 빈 children은 지운다. */
@@ -439,6 +467,7 @@ async function renderUnmatched(el, kind, R, collect) {
       collect();
       R().push({ name: b.dataset.name || "", app: "^" + escRe(b.dataset.mk) + "$", title: "" });
       renderSettingsPage();
+      scheduleSave(async () => { const cc = $("#settingsContent"); if (cc) await cc._saveNow?.(); }, 200);
       const inputs = $("#settingsContent").querySelectorAll('input[data-k="name"]'); const last = inputs[inputs.length - 1]; if (last) { last.focus(); last.select(); }
     });
   } catch (e) { el.textContent = "불러오지 못함: " + e.message; }
@@ -465,6 +494,7 @@ async function init() {
 
 function showPage(name) {
   if (name === "main" && $("#main").style.display !== "none") return;
+  if (name !== "settingsPage" && pendingSave) flushSave();   // 설정 페이지를 떠나면 미뤄 둔 저장을 바로
   for (const id of ["main", "pluginsPage", "settingsPage"]) $("#" + id).style.display = id === name ? "block" : "none";
   $("#plugins").textContent = name === "pluginsPage" ? "타임라인" : "플러그인";
   $("#settings").textContent = name === "settingsPage" ? "타임라인" : "설정";
