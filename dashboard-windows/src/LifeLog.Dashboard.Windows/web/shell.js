@@ -351,16 +351,31 @@ function renderRules(c, kind) {
   const rules = R();
   const cols = kind === "pc" ? [["app", "app (exe 이름)"], ["title", "title (창 제목)"]] : [["app", "package"]];
   const rows = flattenRules(rules);
+  LifeLogSdk.useRuleColors(settings.categories, settings.phone_categories);
+  const autoColor = path => LifeLogSdk.categoryColor(path);
+  const hex = col => { // hsl(…)·#rgb → #rrggbb (color 입력은 #rrggbb만 받는다)
+    const m = /hsl\((\d+) (\d+)% (\d+)%\)/.exec(col);
+    if (!m) return /^#[0-9a-f]{6}$/i.test(col) ? col : "#888888";
+    const h = Number(m[1]) / 360, sa = Number(m[2]) / 100, l = Number(m[3]) / 100, f = n => { const k = (n + h * 12) % 12, a = sa * Math.min(l, 1 - l); return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)))); };
+    return "#" + [f(0), f(8), f(4)].map(x => x.toString(16).padStart(2, "0")).join("");
+  };
+  const pathName = path => path.split(".").reduce((acc, i, k, arr) => { const list = k === 0 ? rules : acc.node.children; const r = list[Number(i)]; return { node: r, name: acc.name ? acc.name + "/" + r.name : r.name }; }, { node: null, name: "" }).name;
   c.innerHTML = `<h2>분류 규칙 › ${kind === "pc" ? "컴퓨터" : "휴대폰"}</h2>
-    <p class="mute">위에서부터 처음 맞는 규칙을 쓴다. 정규식, 대소문자 무시. 규칙에 <b>자식</b>을 두면 부모가 맞을 때만 자식을 검사하고, 맞는 자식이 있으면 그 자식("부모/자식"), 없으면 부모로 분류한다.
+    <p class="mute">위에서부터 처음 맞는 규칙을 쓴다. 정규식, 대소문자 무시. 규칙에 <b>자식</b>을 두면 부모가 맞을 때만 자식을 검사하고, 맞는 자식이 있으면 그 자식("부모/자식"), 없으면 부모로 분류한다. <b>색</b>은 비우면 이름에서 자동으로 정해지고, 자식은 부모 색을 물려받는다.
     ${kind === "pc" ? "app은 exe 이름(예: ^msedge\\.exe$), title은 창 제목(예: YouTube)." : "app 칸에 package 이름(예: ^com\\.google\\.android\\.youtube$)."}</p>
-    <table class="rules"><thead><tr><th>이름</th>${cols.map(x => `<th>${esc(x[1])}</th>`).join("")}<th style="width:150px"></th></tr></thead><tbody>
-    ${rows.map(({ r, path, depth }) => `<tr class="depth${Math.min(depth, 4)}"><td><span class="indent" style="width:${depth * 18}px"></span>${depth ? '<span class="mute">└ </span>' : ""}<input data-p="${path}" data-k="name" value="${esc(r.name)}" placeholder="${depth ? "자식 이름" : "이름"}"></td>${cols.map(x => `<td><input data-p="${path}" data-k="${x[0]}" value="${esc(r[x[0]] || "")}"></td>`).join("")}<td class="tools"><button data-child="${path}" title="이 규칙 아래에 자식 추가">자식</button><button data-up="${path}" title="위로">↑</button><button data-del="${path}" title="지우기">✕</button></td></tr>`).join("")}
+    <table class="rules"><thead><tr><th>이름</th>${cols.map(x => `<th>${esc(x[1])}</th>`).join("")}<th style="width:70px">색</th><th style="width:150px"></th></tr></thead><tbody>
+    ${rows.map(({ r, path, depth }) => `<tr class="depth${Math.min(depth, 4)}"><td><span class="indent" style="width:${depth * 18}px"></span>${depth ? '<span class="mute">└ </span>' : ""}<input data-p="${path}" data-k="name" value="${esc(r.name)}" placeholder="${depth ? "자식 이름" : "이름"}"></td>${cols.map(x => `<td><input data-p="${path}" data-k="${x[0]}" value="${esc(r[x[0]] || "")}"></td>`).join("")}<td class="color"><input type="color" data-p="${path}" data-k="color" value="${hex(r.color || autoColor(pathName(path)))}" title="${r.color ? "지정한 색" : "자동(비우려면 ×)"}"><button data-clear="${path}" title="자동 색으로" ${r.color ? "" : "disabled"}>×</button></td><td class="tools"><button data-child="${path}" title="이 규칙 아래에 자식 추가">자식</button><button data-up="${path}" title="위로">↑</button><button data-del="${path}" title="지우기">✕</button></td></tr>`).join("")}
     </tbody></table>
     <div class="row"><button id="addRule">규칙 추가</button><button id="saveRules">저장</button><span id="ruleMsg" class="mute"></span></div>
     <h3>최근 7일 미분류 <span class="mute">어느 규칙에도 안 맞는 ${kind === "pc" ? "앱" : "package"}, 사용 시간 순. "추가"를 누르면 그 ${kind === "pc" ? "앱" : "package"}으로 새 규칙 줄을 만들고 이름을 제안한다</span></h3>
     <div id="unmatched" class="mute">불러오는 중…</div>`;
-  const collect = () => c.querySelectorAll("input[data-p]").forEach(el => { const r = ruleAt(R(), el.dataset.p); if (r) r[el.dataset.k] = el.value; });
+  const collect = () => c.querySelectorAll("input[data-p]").forEach(el => {
+    const r = ruleAt(R(), el.dataset.p); if (!r) return;
+    if (el.dataset.k === "color") { if (el.dataset.touched === "1" || r.color) r.color = el.value; }   // 손대지 않은 자동 색은 저장하지 않는다
+    else r[el.dataset.k] = el.value;
+  });
+  c.querySelectorAll('input[type="color"]').forEach(el => el.oninput = () => { el.dataset.touched = "1"; el.nextElementSibling.disabled = false; });
+  c.querySelectorAll("[data-clear]").forEach(b => b.onclick = () => { collect(); const r = ruleAt(R(), b.dataset.clear); if (r) delete r.color; renderSettingsPage(); });
   c.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { collect(); const { list, i } = listOf(R(), b.dataset.del); list.splice(i, 1); renderSettingsPage(); });
   c.querySelectorAll("[data-up]").forEach(b => b.onclick = () => { collect(); const { list, i } = listOf(R(), b.dataset.up); if (i === 0) return; const r = list.splice(i, 1)[0]; list.splice(i - 1, 0, r); renderSettingsPage(); });
   c.querySelectorAll("[data-child]").forEach(b => b.onclick = () => {
@@ -373,7 +388,7 @@ function renderRules(c, kind) {
 }
 /** 저장 전 정리: 이름 없는 규칙은 버리고, 빈 children은 지운다. */
 function pruneRules(rules) {
-  return (rules || []).filter(r => r.name).map(r => { const o = { name: r.name, app: r.app || "", title: r.title || "" }; const ch = pruneRules(r.children); if (ch.length) o.children = ch; return o; });
+  return (rules || []).filter(r => r.name).map(r => { const o = { name: r.name, app: r.app || "", title: r.title || "" }; if (r.color) o.color = r.color; const ch = pruneRules(r.children); if (ch.length) o.children = ch; return o; });
 }
 
 async function renderUnmatched(el, kind, R) {

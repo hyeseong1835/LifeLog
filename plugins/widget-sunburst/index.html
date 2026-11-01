@@ -23,9 +23,13 @@ function arc(cx, cy, r0, r1, a0, a1) {
   const big = a1 - a0 > Math.PI ? 1 : 0;
   return `M${x0},${y0} A${r1},${r1} 0 ${big} 1 ${x1},${y1} L${x2},${y2} A${r0},${r0} 0 ${big} 0 ${x3},${y3} Z`;
 }
-function shade(color, k) { // hsl 문자열의 밝기를 조금 바꾼다
-  const m = /hsl\((\d+) (\d+)% (\d+)%\)/.exec(color); if (!m) return color;
-  return `hsl(${m[1]} ${m[2]}% ${Math.max(25, Math.min(85, Number(m[3]) + k))}%)`;
+function shade(color, k) { // 밝기를 조금 바꾼다. hsl(…) 또는 #rrggbb
+  const m = /hsl\((\d+) (\d+)% (\d+)%\)/.exec(color);
+  if (m) return `hsl(${m[1]} ${m[2]}% ${Math.max(25, Math.min(85, Number(m[3]) + k))}%)`;
+  const h = /^#([0-9a-f]{6})$/i.exec(color); if (!h) return color;
+  const n = parseInt(h[1], 16), mix = k > 0 ? 255 : 0, t = Math.abs(k) / 60;
+  const ch = sh => Math.round(((n >> sh) & 255) * (1 - t) + mix * t);
+  return `rgb(${ch(16)} ${ch(8)} ${ch(0)})`;
 }
 lifelog.ready(async (range, widget) => {
   const st = widget.settings || {}; const mode = st.outer || "auto";

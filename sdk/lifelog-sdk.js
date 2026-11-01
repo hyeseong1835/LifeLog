@@ -113,6 +113,7 @@
    * path는 "웹사이트/유튜브" 같은 경로, 안 맞으면 "미분류". top은 첫 조각.
    */
   function categorize({ win = [], afk = [], app = [], range, devices = [], pcRules = [], phRules = [] }) {
+    useRuleColors(pcRules, phRules);
     const include = d => devices.length === 0 || devices.includes(d);
     const out = [];
     for (const d of [...new Set(win.map(r => r.device))].filter(include)) {
@@ -129,8 +130,19 @@
     }
     return out;
   }
-  /** 분류 색: 최상위 이름으로 정해 모든 위젯에서 같다. 미분류는 회색. */
-  const categoryColor = path => { const top = String(path).split("/")[0]; return top === UNCATEGORIZED ? "#8a8a8a" : hashColor(top); };
+  /** 규칙에 적힌 색(경로 → color). categorize가 규칙을 받을 때 채운다. */
+  const ruleColors = new Map();
+  function collectColors(rules, prefix = "") {
+    for (const r of rules || []) { if (!r || !r.name) continue; const path = prefix ? prefix + "/" + r.name : r.name; if (r.color) ruleColors.set(path, r.color); collectColors(r.children, path); }
+  }
+  function useRuleColors(pcRules, phRules) { ruleColors.clear(); collectColors(pcRules); collectColors(phRules); }
+  /** 분류 색: 규칙에 색이 있으면 그것(가장 가까운 상위 규칙의 색을 물려받음), 없으면 최상위 이름 해시. 모든 위젯에서 같다. 미분류는 회색. */
+  function categoryColor(path) {
+    const parts = String(path).split("/");
+    if (parts[0] === UNCATEGORIZED) return "#8a8a8a";
+    for (let i = parts.length; i >= 1; i--) { const c = ruleColors.get(parts.slice(0, i).join("/")); if (c) return c; }
+    return hashColor(parts[0]);
+  }
   /** 경로별 합계 트리. { name, path, ms, children: Map, apps: Map(app → ms) } */
   function categoryTree(entries) {
     const root = { name: "", path: "", ms: 0, children: new Map(), apps: new Map() };
@@ -147,5 +159,5 @@
     return root;
   }
 
-  g.LifeLogSdk = { categorize, categoryColor, categoryTree, UNCATEGORIZED, clip, subtract, merge, sumMs, groupSum, bucketHours, pairEvents, matchRules, fmtDur, fmtTime, hashColor, esc, activeWindows, ms: t };
+  g.LifeLogSdk = { categorize, categoryColor, categoryTree, useRuleColors, UNCATEGORIZED, clip, subtract, merge, sumMs, groupSum, bucketHours, pairEvents, matchRules, fmtDur, fmtTime, hashColor, esc, activeWindows, ms: t };
 })(typeof window !== "undefined" ? window : globalThis);
