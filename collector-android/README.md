@@ -34,7 +34,7 @@ cd collector-android; .\gradlew.bat assembleDebug
 1. 노트북에서 기기 비밀번호를 새로 만든다(관리자 접속): `SELECT lifelog.reset_device_password('phone');` (폰 기기는 import가 이미 등록했다).
 2. 앱 열기 → 기기 id `phone`, 호스트·포트·DB, 테넌트(Supabase 세션 풀러면 프로젝트 ref), 비밀번호 → **저장하고 연결 확인**. 비밀번호는 Keystore로 암호화되어 폰에만 남는다.
 3. 권한: **사용 정보 접근**(설정 화면에서 켬), **위치·알림·활동**, **위치 항상 허용**, **Health Connect**(앱별 권한 화면), **알림 접근(미디어)**, **배터리 최적화 제외**.
-4. **내장 플러그인 전부 등록·켜기**(개발용: 권한 전부 허용. 항목별 허용 UI는 대시보드 몫).
+4. **내장 플러그인 전부 등록·켜기**(개발용: 권한 전부 허용. 항목별 허용 UI는 대시보드 몫). 또는 **URL로 설치**: GitHub URL(`https://github.com/소유자/저장소/tree/브랜치/폴더`)을 넣으면 내려받아 `filesDir/plugins/<id>`에 풀고 등록·켠다. 수집 중이면 서비스를 다시 시작한다.
 5. **수집 시작**. 알림에 상태가 보인다. 중지는 열린 구간을 닫고 큐를 한 번 비운 뒤 끝난다.
 
 ## 소스와 플러그인
@@ -51,4 +51,5 @@ health 지표: steps(시간별 `hourly`)·steps/distance/active_kcal/total_kcal/
 ## 아직 없는 것
 - shealth(삼성 헬스 SDK, 개발자 모드 필요) 소스.
 - Health Connect 변경 토큰 읽기(지금은 시간 범위 재읽기).
-- 부팅 시 자동 시작, QR로 설정 받기, GitHub URL 설치.
+- QR로 설정 받기.
+- QuickJS .so가 16KB 페이지 정렬이 아니라 `pageSizeCompat="enabled"`(호환 모드)로 돌린다. 제대로 하려면 네이티브 라이브러리를 다시 빌드(NDK)하거나 순수 Java 엔진(Rhino)으로 바꿔야 한다.

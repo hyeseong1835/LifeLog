@@ -25,17 +25,18 @@ src/LifeLog.Collector.Windows/    exe (net10.0-windows)
 dotnet build collector-windows
 EXE=collector-windows/src/LifeLog.Collector.Windows/bin/Debug/net10.0-windows10.0.19041.0/lifelog-collector.exe
 LIFELOG_ADMIN_DSN="Host=...;Port=...;Database=...;Username=...;Password=..." $EXE setup --device laptop --name 노트북 --host H --port P --database DB
-$EXE install plugins/win-window --grant-all      # 개발용: 권한 전부 허용하고 켬
+$EXE install plugins/win-window --grant-all      # 개발용: 권한 전부 허용하고 켬. 폴더·zip·GitHub URL(https://github.com/소유자/저장소[/tree/브랜치/폴더])
+$EXE reload              # 실행 중인 수집기에 플러그인 다시 읽기 요청(install이 자동으로 보낸다)
 $EXE run                 # 콘솔. 또는 run --tray (콘솔 숨김, 트레이 아이콘)
 $EXE stop                # 정상 종료(열린 구간 닫고 큐 비움)
 $EXE autostart on        # 로그온 시 `run --tray` (작업 스케줄러)
 ```
 - `setup`은 관리자 접속으로 `register_device`를 부르고 받은 비밀번호만 저장한다. 관리자 접속 문자열은 저장하지 않는다.
-- `install`은 폴더나 zip을 `plugins/<id>`로 복사하고 `register_plugin`을 부른다. `--grant-all`이 없으면 꺼진 채 설치되고 `enable <id>`로 켠다(지금은 권한 전부 허용. 항목별 허용 UI는 대시보드 몫).
+- `install`은 폴더·zip·GitHub URL을 `plugins/<id>`로 복사하고 `register_plugin`을 부른다(`LifeLog.Core/PluginInstaller.cs`, 대시보드와 공용). URL이면 등록부 `plugins.source_url`에 적는다(0006). 실행 중인 수집기가 있으면 reload 신호를 보내 호스트만 새로 만든다(트레이·뮤텍스 유지). `--grant-all`이 없으면 꺼진 채 설치되고 `enable <id>`로 켠다(지금은 권한 전부 허용. 항목별 허용 UI는 대시보드 몫).
 - `run`은 DB 코어 스키마 버전이 앱보다 높으면 쓰기를 거부한다. `autostart`는 HKCU Run 키를 쓴다(관리자 권한 불필요).
 
 ## 원시 기능
-`ctx.file.list(dir, pattern)`, `ctx.file.read(path, { from, max })` → `{ text, next, size, eof }`, `ctx.file.stat(path)`. 매니페스트의 `file:read:<경로 접두어>`(`~`·`%VAR%` 가능) 아래만 읽는다. `plugins/claude-session`이 예다(`~/.claude/projects`의 세션 jsonl을 이어 읽어 세션 구간을 만든다).
+`ctx.file.list(dir, pattern)`, `ctx.file.read(path, { from, max })` → `{ text, next, size, eof }`, `ctx.file.stat(path)`. 매니페스트의 `file:read:<경로 접두어>`(`~`·`%VAR%` 가능) 아래만 읽는다. `plugins/claude-session`(`~/.claude/projects`의 세션 jsonl)과 `plugins/vscode`(`collector-vscode` 확장이 쓰는 events.jsonl)가 예다. 둘 다 이어 읽기이고 상태에 읽은 위치를 둔다.
 
 ## 플러그인 작성
 `plugins/win-window/main.js`가 가장 작은 예다. `export default { start(ctx), stop(ctx) }`. 행의 시각은 `Date`(소스 이벤트의 `ev.time`을 그대로 넘기면 된다). 선언되지 않은 열을 넣으면 거부된다. 핸들러 예외는 격리되고 연속 5회면 그 기기에서 꺼진다.

@@ -28,6 +28,9 @@ lifelog-dashboard.exe --screenshot out.png
 ## 렌더러 플러그인 작성
 `manifest.json`(`type: renderer`, `runtimes.webview`, `inputs`, `slot`)과 `index.html`. 페이지 안에서 `lifelog.query("win-window/window", { range, limit })`, `lifelog.onRangeChange(fn)`, `lifelog.settings()`. `inputs`에 없는 출력을 질의하면 거부된다. `slot`은 `lane`(타임라인 한 줄, 높이 120px) 또는 `page`(480px).
 
+## 플러그인 페이지
+헤더의 **플러그인** 버튼. 등록부(`lifelog.registry`)의 수집기·렌더러를 기기별 설치 상태(켜짐/꺼짐·버전·last_seen·미허용 권한)와 테이블·출처와 함께 표로 보여 준다. 이 기기에서 **켜기/끄기**(`setEnabled`), **설치**(GitHub URL·폴더 경로·zip 경로 또는 폴더 고르기, `installPlugin(source)`). 수집기 플러그인은 수집기의 `plugins/`에 넣고 실행 중인 수집기에 reload 신호를 보낸다. 다른 기기에는 설치할 수 없다(파일이 그 기기에 있어야 함). 지금은 권한을 전부 허용하고 켠다.
+
 ## 아직 없는 것
 - 날짜 외 범위(주·월)와 `query` 집계를 쓰는 내장 화면. 렌더러의 `navigate`.
 - 플러그인 권한 항목별 허용 화면, GitHub URL 설치, 렌더러 켜고 끄기 UI.
