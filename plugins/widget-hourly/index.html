@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<style>
+  body { margin:0; padding:8px 12px; font: 11px/1.3 "Segoe UI Variable", "Segoe UI", sans-serif; color:#ddd; background:transparent; }
+  .chart { display:grid; grid-template-columns: repeat(24, 1fr); gap:3px; align-items:end; height:180px; }
+  .col { display:flex; flex-direction:column; justify-content:flex-end; height:100%; }
+  .pc { background:#6cf; border-radius:2px 2px 0 0; }
+  .ph { background:#c9f; border-radius:2px 2px 0 0; }
+  .labels { display:grid; grid-template-columns: repeat(24, 1fr); color:#666; text-align:center; margin-top:4px; }
+  .legend { color:#888; margin-top:6px; }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin:0 4px 0 8px; vertical-align:middle; }
+  .mute { color:#666; }
+</style></head>
+<body><div id="root" class="mute">불러오는 중…</div>
+<script src="https://app.lifelog/sdk.js"></script>
+<script>
+const S = LifeLogSdk;
+async function q(view, opts) { try { return (await lifelog.query(view, opts)).rows; } catch (e) { return []; } }
+lifelog.ready(async range => {
+  const root = document.getElementById("root");
+  const [win, afk, app] = await Promise.all([q("win-window/window", { range, limit: 20000 }), q("win-afk/afk", { range, limit: 5000 }), q("phone-app/app", { range, limit: 20000 })]);
+  const pc = S.bucketHours(S.activeWindows(win, afk, range), range.start, range.end);
+  const ph = S.bucketHours(S.clip(app, range.start, range.end), range.start, range.end);
+  if (pc.every(b => b.ms === 0) && ph.every(b => b.ms === 0)) { root.innerHTML = '<span class="mute">기록 없음</span>'; return; }
+  root.className = "";
+  root.innerHTML = `<div class="chart">${pc.map((b, i) => {
+    const h1 = b.ms / 3600e3 * 100, h2 = ph[i].ms / 3600e3 * 100;
+    return `<div class="col" title="${S.fmtTime(b.hour)}  컴퓨터 ${S.fmtDur(b.ms)} · 폰 ${S.fmtDur(ph[i].ms)}"><div class="ph" style="height:${Math.min(100, h2)}%"></div><div class="pc" style="height:${Math.min(100, h1)}%"></div></div>`;
+  }).join("")}</div>
+  <div class="labels">${pc.map((b, i) => i % 3 === 0 ? `<span>${S.fmtTime(b.hour).slice(0, 2)}</span>` : "<span></span>").join("")}</div>
+  <div class="legend"><i class="pc"></i>컴퓨터(자리 비움 제외)<i class="ph"></i>폰 앱</div>`;
+});
+</script></body></html>

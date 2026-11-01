@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<style>
+  body { margin:0; padding:8px 12px; font: 12px/1.4 "Segoe UI Variable", "Segoe UI", sans-serif; color:#ddd; background:transparent; }
+  .row { display:grid; grid-template-columns: 1fr 70px; align-items:center; gap:8px; margin:3px 0; }
+  .bar { height:16px; border-radius:3px; display:flex; align-items:center; padding:0 5px; color:#000; font-size:11px; white-space:nowrap; overflow:hidden; min-width:2px; }
+  .dur { text-align:right; color:#aaa; font-variant-numeric: tabular-nums; }
+  .mute { color:#666; }
+</style></head>
+<body><div id="root" class="mute">불러오는 중…</div>
+<script src="https://app.lifelog/sdk.js"></script>
+<script>
+const S = LifeLogSdk;
+async function q(view, opts) { try { return (await lifelog.query(view, opts)).rows; } catch (e) { return []; } }
+lifelog.ready(async (range, widget) => {
+  const st = widget.settings || {}; const source = st.source || "both"; const limit = Number(st.limit) || 10;
+  const root = document.getElementById("root");
+  let rows = [];
+  if (source !== "phone") {
+    const [win, afk] = await Promise.all([q("win-window/window", { range, limit: 20000 }), q("win-afk/afk", { range, limit: 5000 })]);
+    rows = rows.concat(S.activeWindows(win, afk, range).map(r => Object.assign(r, { key: (r.app || "?").replace(/\.exe$/i, "") })));
+  }
+  if (source !== "laptop") {
+    const app = await q("phone-app/app", { range, limit: 20000 });
+    rows = rows.concat(S.clip(app, range.start, range.end).map(r => Object.assign(r, { key: "📱 " + (r.package || "?").split(".").slice(-1)[0] })));
+  }
+  const groups = S.groupSum(rows, r => r.key);
+  if (groups.length === 0) { root.innerHTML = '<span class="mute">기록 없음</span>'; return; }
+  const total = groups.reduce((a, g) => a + g.ms, 0), max = groups[0].ms;
+  root.className = "";
+  root.innerHTML = groups.slice(0, limit).map(g => `<div class="row" title="${S.esc(g.key)} ${Math.round(g.ms / total * 100)}%">
+    <div class="bar" style="width:${Math.max(2, g.ms / max * 100)}%;background:${S.hashColor(g.key)}">${S.esc(g.key)}</div><div class="dur">${S.fmtDur(g.ms)}</div></div>`).join("") +
+    `<div class="mute" style="margin-top:6px">합계 ${S.fmtDur(total)}</div>`;
+});
+</script></body></html>

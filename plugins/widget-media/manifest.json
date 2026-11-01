@@ -1,0 +1,13 @@
+{
+  "type": "renderer",
+  "id": "widget-media",
+  "version": "1.0.0",
+  "name": "들은 것",
+  "min_host_version": 1,
+  "runtimes": { "webview": "index.html" },
+  "slot": "card",
+  "inputs": ["win-media/media@1", "phone-media/media@1"],
+  "settings": [
+    { "key": "limit", "type": "number", "default": 30, "label": "표시 개수" }
+  ]
+}

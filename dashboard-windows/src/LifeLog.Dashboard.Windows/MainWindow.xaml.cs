@@ -45,7 +45,9 @@ public partial class MainWindow : Window
 
             var webDir = Path.Combine(AppContext.BaseDirectory, "web");
             core.SetVirtualHostNameToFolderMapping("app.lifelog", webDir, CoreWebView2HostResourceAccessKind.Allow);
+            Bridge.Logger = Log;
             _bridge = new Bridge(_db, cfg, core, this);
+            await _bridge.InstallBundledAsync();
             await _bridge.MapPluginsAsync();
             await core.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(Path.Combine(webDir, "bridge.js")));
             core.WebMessageReceived += (_, e) => _ = _bridge.HandleAsync(e);
@@ -59,13 +61,17 @@ public partial class MainWindow : Window
                 var path = args[si + 1];
                 core.NavigationCompleted += async (_, _) =>
                 {
-                    await Task.Delay(4000);
+                    var wi = Array.IndexOf(args, "--wait");
+                    await Task.Delay(wi >= 0 && wi + 1 < args.Length ? int.Parse(args[wi + 1]) : 4000);
                     await using var fs = File.Create(path);
                     await core.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, fs);
                     Close();
                 };
             }
-            core.Navigate("https://app.lifelog/index.html");
+            // 개발용: --offset N → N일 전 하루를 연다
+            var oi = Array.IndexOf(args, "--offset");
+            var url = "https://app.lifelog/index.html" + (oi >= 0 && oi + 1 < args.Length ? "?offset=" + Uri.EscapeDataString(args[oi + 1]) : "");
+            core.Navigate(url);
         }
         catch (Exception e)
         {

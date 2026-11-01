@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<style>
+  body { margin:0; padding:6px 12px; font: 12px/1.4 "Segoe UI Variable", "Segoe UI", sans-serif; color:#ddd; background:transparent; }
+  table { border-collapse:collapse; width:100%; }
+  td { padding:2px 6px 2px 0; vertical-align:top; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:220px; }
+  td.t { color:#888; font-variant-numeric: tabular-nums; }
+  td.a { color:#aaa; }
+  .mute { color:#666; }
+</style></head>
+<body><div id="root" class="mute">불러오는 중…</div>
+<script src="https://app.lifelog/sdk.js"></script>
+<script>
+const S = LifeLogSdk;
+async function q(view, opts) { try { return (await lifelog.query(view, opts)).rows; } catch (e) { return []; } }
+lifelog.ready(async (range, widget) => {
+  const limit = Number((widget.settings || {}).limit) || 30;
+  const root = document.getElementById("root");
+  const [win, phone] = await Promise.all([q("win-media/media", { range, limit: 5000 }), q("phone-media/media", { range, limit: 5000 })]);
+  const rows = S.clip(win.map(r => Object.assign({}, r, { src: (r.app || "").split("!").pop().split(".").slice(-1)[0] || "PC" })).concat(
+    phone.map(r => Object.assign({}, r, { src: "📱 " + (r.package || "").split(".").slice(-1)[0] }))), range.start, range.end)
+    .filter(r => r.e - r.s >= 20000).sort((a, b) => b.s - a.s);
+  if (rows.length === 0) { root.innerHTML = '<span class="mute">기록 없음</span>'; return; }
+  root.className = "";
+  root.innerHTML = `<table>${rows.slice(0, limit).map(r => `<tr title="${S.esc(r.title)} — ${S.esc(r.artist || "")} (${S.esc(r.album || "")})">
+    <td class="t">${S.fmtTime(r.s)}</td><td>${S.esc(r.title || "?")}</td><td class="a">${S.esc(r.artist || "")}</td><td class="a">${S.esc(r.src)}</td><td class="t">${S.fmtDur(r.e - r.s)}</td></tr>`).join("")}</table>` +
+    (rows.length > limit ? `<div class="mute">… ${rows.length - limit}개 더</div>` : "");
+});
+</script></body></html>

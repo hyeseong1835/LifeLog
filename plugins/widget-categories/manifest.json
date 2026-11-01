@@ -1,0 +1,13 @@
+{
+  "type": "renderer",
+  "id": "widget-categories",
+  "version": "1.0.0",
+  "name": "분류별 시간",
+  "min_host_version": 1,
+  "runtimes": { "webview": "index.html" },
+  "slot": "card",
+  "inputs": ["win-window/window@1", "win-afk/afk@1"],
+  "settings": [
+    { "key": "limit", "type": "number", "default": 12, "label": "표시 개수" }
+  ]
+}

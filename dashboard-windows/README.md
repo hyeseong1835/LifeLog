@@ -28,6 +28,11 @@ lifelog-dashboard.exe --screenshot out.png
 ## 렌더러 플러그인 작성
 `manifest.json`(`type: renderer`, `runtimes.webview`, `inputs`, `slot`)과 `index.html`. 페이지 안에서 `lifelog.query("win-window/window", { range, limit })`, `lifelog.onRangeChange(fn)`, `lifelog.settings()`. `inputs`에 없는 출력을 질의하면 거부된다. `slot`은 `lane`(타임라인 한 줄, 높이 120px) 또는 `page`(480px).
 
+## 뷰·위젯 (2026-11-02)
+설계: `Documents/대시보드 뷰·위젯.md`. 헤더 탭이 뷰, 뷰 안의 카드가 위젯이다. **편집** 버튼으로 위젯 추가(내장 타임라인 + 설치된 `slot: "card"` 렌더러)·삭제·순서·너비(1~3열)·설정(매니페스트 `settings` 선언으로 폼), 뷰 추가·이름·삭제. **설정** 버튼에서 하루 시작과 분류 규칙(`categories`: 이름·app·title 정규식)을 고친다. 전부 이 기기의 `settings.json`에 저장된다.
+내장 위젯 6개(`plugins/widget-*`)는 빌드 출력 `bundled-plugins/`에 묶여 첫 실행 때 자동 설치·등록된다. 위젯은 `https://app.lifelog/sdk.js`(저장소 `sdk/lifelog-sdk.js`)를 쓰고 `lifelog.ready((range, widget) => …)`로 시작한다. `lifelog.widget`이 `{ id, w, h, settings }`.
+개발용 옵션: `--screenshot 경로 [--wait ms] [--offset -1]`(N일 전 하루를 열어 캡처). 페이지의 JS 오류는 `dashboard.log`에 `[js …]`로 남는다.
+
 ## 플러그인 페이지
 헤더의 **플러그인** 버튼. 등록부(`lifelog.registry`)의 수집기·렌더러를 기기별 설치 상태(켜짐/꺼짐·버전·last_seen·미허용 권한)와 테이블·출처와 함께 표로 보여 준다. 이 기기에서 **켜기/끄기**(`setEnabled`), **설치**(GitHub URL·폴더 경로·zip 경로 또는 폴더 고르기, `installPlugin(source)`). 수집기 플러그인은 수집기의 `plugins/`에 넣고 실행 중인 수집기에 reload 신호를 보낸다. 다른 기기에는 설치할 수 없다(파일이 그 기기에 있어야 함). 지금은 권한을 전부 허용하고 켠다.
 

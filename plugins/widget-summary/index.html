@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<style>
+  body { margin:0; padding:10px 12px; font: 12px/1.5 "Segoe UI Variable", "Segoe UI", sans-serif; color:#ddd; background:transparent; }
+  .kv { display:grid; grid-template-columns: auto 1fr; gap:2px 12px; }
+  .kv b { font-weight:500; color:#888; }
+  .big { font-size:18px; }
+  .mute { color:#666; }
+</style></head>
+<body><div id="root" class="mute">불러오는 중…</div>
+<script src="https://app.lifelog/sdk.js"></script>
+<script>
+const S = LifeLogSdk;
+async function q(view, opts) { try { return (await lifelog.query(view, opts)).rows; } catch (e) { return null; } }
+lifelog.ready(async range => {
+  const root = document.getElementById("root");
+  const [win, afk, input, health, screen] = await Promise.all([
+    q("win-window/window", { range, limit: 20000 }), q("win-afk/afk", { range, limit: 5000 }),
+    q("win-input/input", { range, limit: 5000 }), q("health/span", { range, where: { metric: "steps", category: "daily" }, limit: 50 }),
+    q("phone-screen/screen", { range, limit: 5000 }),
+  ]);
+  const rows = [];
+  if (win) {
+    const active = S.activeWindows(win, afk || [], range);
+    const afkMs = S.sumMs(S.clip((afk || []).filter(r => r.afk === true), range.start, range.end));
+    rows.push(["컴퓨터 활동", `<span class="big">${S.fmtDur(S.sumMs(active))}</span>`]);
+    rows.push(["자리 비움", S.fmtDur(afkMs)]);
+    if (win.length) rows.push(["첫·마지막 활동", `${S.fmtTime(win[0].start)} ~ ${S.fmtTime(win[win.length - 1].end)}`]);
+  } else rows.push(["컴퓨터 활동", '<span class="mute">창 기록 없음</span>']);
+  if (input && input.length) rows.push(["키 입력 · 클릭", `${input.reduce((a, r) => a + (r.keys || 0), 0).toLocaleString()} · ${input.reduce((a, r) => a + (r.clicks || 0), 0).toLocaleString()}`]);
+  if (screen && screen.length) {
+    const on = S.pairEvents(screen, ev => ev.kind === "on" || ev.kind === "unlock", ev => ev.kind === "off", range.start, range.end);
+    rows.push(["폰 화면 켬", `${S.fmtDur(S.sumMs(on))} · ${screen.filter(e => e.kind === "unlock").length}회 잠금 해제`]);
+  }
+  if (health && health.length) {
+    const S0 = S.ms(range.start), E0 = S.ms(range.end);
+    const best = health.map(r => ({ r, ov: Math.min(E0, S.ms(r.end)) - Math.max(S0, S.ms(r.start)) })).sort((a, b) => b.ov - a.ov)[0];
+    if (best && best.r.value != null) rows.push(["걸음", `${Math.round(best.r.value).toLocaleString()} <span class="mute">(${new Date(best.r.start).getMonth() + 1}/${new Date(best.r.start).getDate()})</span>`]);
+  }
+  root.className = "kv";
+  root.innerHTML = rows.map(([k, v]) => `<b>${S.esc(k)}</b><span>${v}</span>`).join("");
+});
+</script></body></html>

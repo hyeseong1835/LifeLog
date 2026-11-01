@@ -19,6 +19,8 @@
 
   <ItemGroup>
     <None Include="web\**" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\sdk\lifelog-sdk.js" Link="web\sdk.js" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\plugins\widget-*\**" LinkBase="bundled-plugins" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

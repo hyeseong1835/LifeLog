@@ -28,6 +28,9 @@
     return true;
   }
 
+  // 스크립트 오류를 호스트 로그(dashboard.log)로. 플러그인 iframe의 오류는 셸을 거친다
+  window.addEventListener("error", e => { try { call("log", `${pluginId} ${location.pathname}: ${e.message} (${e.lineno})`); } catch (_) {} });
+  window.addEventListener("unhandledrejection", e => { try { call("log", `${pluginId}: ${e.reason && e.reason.message || e.reason}`); } catch (_) {} });
   if (isTop) {
     chrome.webview.addEventListener("message", e => {
       const reply = e.data;
@@ -49,11 +52,12 @@
       if (d && d.lifelog === "reply") settle(d.reply);
       if (d && d.lifelog === "range") { current.range = d.range; listeners.forEach(fn => fn(d.range)); }
       if (d && d.lifelog === "theme") { current.theme = d.theme; }
+      if (d && d.lifelog === "widget") { current.widget = d.widget; widgetListeners.forEach(fn => fn(d.widget)); }
     });
   }
 
-  const listeners = [];
-  const current = { range: null, theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light" };
+  const listeners = [], widgetListeners = [];
+  const current = { range: null, widget: null, theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light" };
 
   window.lifelog = {
     id: pluginId,
@@ -69,6 +73,11 @@
     device: () => call("device"),
     get range() { return current.range; },
     get theme() { return current.theme; },
+    /** 위젯 인스턴스 정보 { id, w, h, settings }. 셸이 iframe에 준다. */
+    get widget() { return current.widget; },
+    onWidgetChange(fn) { widgetListeners.push(fn); if (current.widget) fn(current.widget); },
+    /** 범위와 위젯 설정이 둘 다 준비됐을 때 한 번, 이후 바뀔 때마다 부른다 */
+    ready(fn) { const go = () => { if (current.range) fn(current.range, current.widget || { settings: {} }); }; listeners.push(go); widgetListeners.push(go); go(); },
     onRangeChange(fn) { listeners.push(fn); if (current.range) fn(current.range); },
     navigate(range) { if (!isTop) window.parent.postMessage({ lifelog: "navigate", range }, "*"); },
     // 셸이 iframe에 범위를 알릴 때 쓴다

@@ -4,16 +4,31 @@
 <meta charset="utf-8">
 <title>LifeLog</title>
 <style>
-  :root { color-scheme: dark; --bg:#111; --fg:#ddd; --mute:#888; --line:#2a2a2a; --accent:#6cf; }
+  :root { color-scheme: dark; --bg:#111; --fg:#ddd; --mute:#888; --line:#2a2a2a; --accent:#6cf; --card:#181818; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--fg); font: 13px/1.4 "Segoe UI Variable", "Segoe UI", sans-serif; }
-  header { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:2; }
+  header { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:2; flex-wrap:wrap; }
   header h1 { font-size:14px; margin:0 12px 0 0; font-weight:600; }
   button { background:#222; color:var(--fg); border:1px solid #333; border-radius:6px; padding:4px 10px; cursor:pointer; }
   button:hover { background:#2c2c2c; }
+  button.on { background:#2a3f55; border-color:var(--accent); }
+  input, select { background:#1a1a1a; color:var(--fg); border:1px solid #333; border-radius:6px; padding:4px 8px; }
   .date { font-variant-numeric: tabular-nums; min-width: 170px; text-align:center; }
   .spacer { flex:1; }
-  main { padding: 8px 40px 40px 12px; overflow-x: hidden; }
+  .mute { color:var(--mute); }
+  #tabs { display:flex; gap:4px; margin-left:12px; }
+  .tab { border-radius:12px; padding:3px 12px; }
+  .tab.on { background:#2a3f55; border-color:var(--accent); }
+  .tab.add { color:var(--mute); }
+  main { padding: 10px 12px 40px 12px; overflow-x: hidden; }
+  .grid { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:10px; }
+  .widget { background:var(--card); border:1px solid var(--line); border-radius:8px; min-height:120px; display:flex; flex-direction:column; overflow:hidden; }
+  .whead { display:flex; align-items:center; justify-content:space-between; padding:6px 10px; border-bottom:1px solid var(--line); color:var(--mute); font-size:12px; }
+  .wtools button { padding:1px 6px; margin-left:2px; font-size:11px; }
+  .wbody { flex:1; min-height:0; }
+  .wbody iframe { width:100%; height:260px; border:0; background:transparent; display:block; }
+  .wbody.timeline { padding: 4px 28px 8px 8px; }
+  .addbar { grid-column: span 3; display:flex; gap:8px; align-items:center; padding:8px; border:1px dashed #333; border-radius:8px; }
   .axis { position:relative; height:18px; margin-left: 180px; color:var(--mute); font-size:11px; overflow:visible; }
   .axis span { position:absolute; transform:translateX(-50%); }
   .lane { display:flex; align-items:stretch; min-height:26px; border-top:1px solid var(--line); }
@@ -21,20 +36,21 @@
   .lane .track { position:relative; flex:1; height:26px; }
   .block { position:absolute; top:4px; height:18px; border-radius:3px; overflow:hidden; font-size:11px; line-height:18px; padding:0 3px; white-space:nowrap; color:#000; }
   .tick { position:absolute; top:2px; width:2px; height:22px; background:var(--accent); }
-  .lane.plugin .track { height:auto; }
-  .lane.plugin iframe { width:100%; height:120px; border:0; background:transparent; }
-  .empty { color:var(--mute); padding:12px 0; }
-  .tip { position:fixed; pointer-events:none; background:#000; color:#fff; padding:4px 8px; border-radius:4px; font-size:12px; display:none; z-index:9; max-width:480px; }
+  .empty { color:var(--mute); padding:12px; }
+  .tip { position:fixed; pointer-events:none; background:#000; color:#fff; padding:4px 8px; border-radius:4px; font-size:12px; display:none; z-index:9; max-width:480px; white-space:pre-line; }
   .warn { color:#fc6; }
-  .mute { color:var(--mute); }
-  #pluginsPage { padding: 12px; }
-  #pluginsPage .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-  #pluginsPage input { background:#1a1a1a; color:var(--fg); border:1px solid #333; border-radius:6px; padding:4px 8px; }
-  table.plugins { border-collapse:collapse; margin-top:8px; width:100%; }
-  table.plugins th, table.plugins td { text-align:left; vertical-align:top; padding:6px 8px; border-top:1px solid var(--line); font-size:12px; }
-  table.plugins th { color:var(--mute); font-weight:500; }
+  #pluginsPage, #settingsPage { padding: 12px; }
+  #pluginsPage .row, #settingsPage .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; }
+  table.plugins, table.rules { border-collapse:collapse; margin-top:8px; width:100%; }
+  table.plugins th, table.plugins td, table.rules th, table.rules td { text-align:left; vertical-align:top; padding:6px 8px; border-top:1px solid var(--line); font-size:12px; }
+  table.plugins th, table.rules th { color:var(--mute); font-weight:500; }
+  table.rules input { width:100%; }
   .chip { display:inline-block; padding:1px 6px; border-radius:10px; font-size:11px; }
   .chip.on { background:#1f4d2a; color:#9f9; } .chip.off { background:#333; color:#aaa; }
+  dialog { background:var(--card); color:var(--fg); border:1px solid #333; border-radius:10px; min-width:320px; }
+  dialog::backdrop { background:rgba(0,0,0,.5); }
+  dialog label { display:flex; justify-content:space-between; gap:12px; margin:8px 0; align-items:center; }
+  dialog .row { display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
 </style>
 </head>
 <body>
@@ -44,14 +60,20 @@
   <div class="date" id="date"></div>
   <button id="next">▶</button>
   <button id="today">오늘</button>
+  <div id="tabs"></div>
   <div class="spacer"></div>
-  <span id="info" class="warn"></span>
+  <span id="info" class="mute"></span>
+  <button id="edit">편집</button>
+  <button id="settings">설정</button>
   <button id="plugins">플러그인</button>
   <button id="reload">새로고침</button>
 </header>
 <main id="main"><div class="empty">불러오는 중…</div></main>
 <section id="pluginsPage" style="display:none"></section>
+<section id="settingsPage" style="display:none"></section>
+<dialog id="dlg"><h3 id="dlgTitle"></h3><form id="dlgForm" method="dialog" onsubmit="return false"></form><div class="row"><button id="dlgCancel">취소</button><button id="dlgOk">저장</button></div></dialog>
 <div class="tip" id="tip"></div>
+<script src="sdk.js"></script>
 <script src="shell.js"></script>
 <script src="plugins.js"></script>
 </body>

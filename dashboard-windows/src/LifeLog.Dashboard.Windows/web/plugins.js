@@ -57,10 +57,8 @@
   }
 
   btn.onclick = () => {
-    open = !open;
-    page.style.display = open ? "block" : "none";
-    main.style.display = open ? "none" : "block";
-    btn.textContent = open ? "타임라인" : "플러그인";
+    open = page.style.display !== "block";
+    window.showPage(open ? "pluginsPage" : "main");
     if (open) render();
   };
 })();

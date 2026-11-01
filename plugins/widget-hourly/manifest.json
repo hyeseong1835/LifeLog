@@ -1,0 +1,10 @@
+{
+  "type": "renderer",
+  "id": "widget-hourly",
+  "version": "1.0.0",
+  "name": "시간대별 활동",
+  "min_host_version": 1,
+  "runtimes": { "webview": "index.html" },
+  "slot": "card",
+  "inputs": ["win-window/window@1", "win-afk/afk@1", "phone-app/app@1"]
+}

@@ -51,8 +51,33 @@ public sealed class Bridge
 
     private JsonObject LoadSettings()
     {
-        if (File.Exists(_settingsPath)) return JsonNode.Parse(File.ReadAllText(_settingsPath))!.AsObject();
-        return new JsonObject { ["day_start"] = "04:00", ["tz"] = TimeZoneInfo.Local.Id };
+        var o = File.Exists(_settingsPath) ? JsonNode.Parse(File.ReadAllText(_settingsPath))!.AsObject() : new JsonObject();
+        o["day_start"] ??= "04:00";
+        o["tz"] ??= TimeZoneInfo.Local.Id;
+        o["views"] ??= new JsonArray();
+        o["categories"] ??= new JsonArray();
+        return o;
+    }
+
+    /// <summary>저장소 plugins/widget-*(빌드 출력 bundled-plugins/)을 처음 보거나 버전이 올라갔으면 대시보드 plugins/에 설치하고 켠다.</summary>
+    public async Task InstallBundledAsync()
+    {
+        var src = Path.Combine(AppContext.BaseDirectory, "bundled-plugins");
+        if (!Directory.Exists(src)) return;
+        foreach (var dir in Directory.GetDirectories(src))
+        {
+            var mf = Path.Combine(dir, "manifest.json");
+            if (!File.Exists(mf)) continue;
+            try
+            {
+                var m = Manifest.Load(mf);
+                var installed = Path.Combine(PluginsDir, m.Id, "manifest.json");
+                if (File.Exists(installed) && Manifest.Load(installed).Version == m.Version) continue;
+                await PluginInstaller.InstallAsync(_db, _cfg.Device, PluginsDir, dir, grantAll: true, "renderer");
+                Log($"내장 위젯 설치: {m.Id} {m.Version}");
+            }
+            catch (Exception e) { Log($"내장 위젯 설치 실패 {dir}: {e.Message}"); }
+        }
     }
 
     public async Task HandleAsync(CoreWebView2WebMessageReceivedEventArgs e)
@@ -78,11 +103,14 @@ public sealed class Bridge
                 "setEnabled" => await SetEnabledAsync(args),
                 "reloadCollector" => ReloadCollector(),
                 "device" => _cfg.Device,
+                "log" => LogJs(from, args),
                 _ => throw new InvalidOperationException("모르는 메서드: " + method),
             };
         }
         catch (Exception ex) { error = ex.Message; }
-        var reply = JsonSerializer.Serialize(new { id, result, error }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+        string reply;
+        try { reply = JsonSerializer.Serialize(new { id, result, error }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }); }
+        catch (Exception ex) { Log($"응답 직렬화 실패 {method}: {ex.Message}"); reply = JsonSerializer.Serialize(new { id, result = (object?)null, error = "응답 직렬화 실패: " + ex.Message }); }
         _core.PostWebMessageAsJson(reply);
     }
 
@@ -127,6 +155,7 @@ public sealed class Bridge
                 enabled = inst?.Enabled ?? false,
                 unmet = inst is null ? Array.Empty<string>() : JsonSerializer.Deserialize<string[]>(await UnmetAsync(id))!,
                 settings = inst?.Settings,
+                decl = raw.TryGetProperty("settings", out var sd) && sd.ValueKind == JsonValueKind.Array ? sd : (object?)null,
             });
         }
         return list;
@@ -194,5 +223,13 @@ public sealed class Bridge
         return true;
     }
 
-    private static void Log(string s) => System.Diagnostics.Debug.WriteLine(s);
+    private object LogJs(string from, JsonElement args)
+    {
+        var msg = args.ValueKind == JsonValueKind.Array && args.GetArrayLength() > 0 ? args[0].ToString() : "";
+        Log($"[js {from}] {msg}");
+        return true;
+    }
+
+    public static Action<string> Logger { get; set; } = s => System.Diagnostics.Debug.WriteLine(s);
+    private static void Log(string s) => Logger(s);
 }
