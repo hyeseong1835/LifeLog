@@ -42,7 +42,7 @@ const hashColor = s => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeA
 const uid = () => "w" + Math.random().toString(36).slice(2, 8);
 
 function currentView() { return settings.views.find(v => v.id === viewId) || settings.views[0]; }
-async function saveSettings() { settings = Object.assign(settings, await lifelog.setSettings(settings)); }
+async function saveSettings() { await lifelog.setSettings(settings); }   // 저장 결과로 settings를 덮어쓰지 않는다(편집 중인 배열 참조가 끊기지 않게)
 
 // ---- 테마 ----
 function effectiveTheme() {
@@ -129,20 +129,29 @@ function migrateView(view) {
   return true;
 }
 
-/** 편집 모드: 머리띠를 끌면 이동, 오른쪽 아래 손잡이를 끌면 크기. 칸 단위로 스냅하고 놓으면 저장한다(다시 그리지 않는다). */
+/** 편집 모드: 머리띠를 끌면 이동, 오른쪽 아래 손잡이를 끌면 크기. 칸 단위로 스냅하고 놓으면 저장한다(다시 그리지 않는다).
+ * 포인터 캡처를 써서 iframe 위에서 놓아도 끝을 놓치지 않는다. 끄는 동안 body에 dragging을 달아 iframe이 포인터를 못 받게 한다. */
 function attachEdit(card, head, w, view) {
   const handle = document.createElement("div"); handle.className = "handle"; handle.title = "끌어서 크기 조절";
   card.appendChild(handle);
-  const drag = (e, apply) => {
+  const drag = (target, e, apply) => {
     e.preventDefault();
     const u = gridUnits(), start = { x: e.clientX, y: e.clientY, wx: w.x || 0, wy: w.y || 0, ww: w.w || 1, wh: w.h || 1 };
     const move = ev => { const dx = Math.round((ev.clientX - start.x) / (u.cell + u.gap)), dy = Math.round((ev.clientY - start.y) / (u.cell + u.gap)); apply(start, dx, dy); applyRect(card, w, u); };
-    const up = async () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); card.classList.remove("resizing"); fitBoard(card.parentElement, view, u); await saveSettings(); };
-    card.classList.add("resizing");
-    window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+    let done = false;
+    const up = async () => {
+      if (done) return; done = true;
+      target.removeEventListener("pointermove", move); target.removeEventListener("pointerup", up); target.removeEventListener("pointercancel", up); target.removeEventListener("lostpointercapture", up);
+      try { target.releasePointerCapture(e.pointerId); } catch (_) {}
+      card.classList.remove("resizing"); document.body.classList.remove("dragging");
+      fitBoard(card.parentElement, view, u); await saveSettings();
+    };
+    try { target.setPointerCapture(e.pointerId); } catch (_) {}
+    card.classList.add("resizing"); document.body.classList.add("dragging");
+    target.addEventListener("pointermove", move); target.addEventListener("pointerup", up); target.addEventListener("pointercancel", up); target.addEventListener("lostpointercapture", up);
   };
-  handle.addEventListener("mousedown", e => drag(e, (st, dx, dy) => { w.w = Math.max(1, st.ww + dx); w.h = Math.max(1, st.wh + dy); }));
-  head.addEventListener("mousedown", e => { if (e.target.closest("button")) return; drag(e, (st, dx, dy) => { w.x = Math.max(0, st.wx + dx); w.y = Math.max(0, st.wy + dy); }); });
+  handle.addEventListener("pointerdown", e => drag(handle, e, (st, dx, dy) => { w.w = Math.max(1, st.ww + dx); w.h = Math.max(1, st.wh + dy); }));
+  head.addEventListener("pointerdown", e => { if (e.target.closest("button") || e.button !== 0) return; drag(head, e, (st, dx, dy) => { w.x = Math.max(0, st.wx + dx); w.y = Math.max(0, st.wy + dy); }); });
   head.classList.add("movable");
 }
 
@@ -258,7 +267,11 @@ function renderTabs() {
   const tabs = $("#tabs");
   tabs.innerHTML = settings.views.map(v => `<button class="tab ${v.id === viewId ? "on" : ""}" data-view="${esc(v.id)}">${esc(v.name)}</button>`).join("") +
     (editing ? '<button class="tab add" id="addView">+ 뷰</button>' : "");
-  tabs.querySelectorAll("[data-view]").forEach(b => b.onclick = () => { viewId = b.dataset.view; load(); });
+  tabs.querySelectorAll("[data-view]").forEach(b => {
+    b.onclick = () => { viewId = b.dataset.view; showPage("main"); load(); };
+    b.title = "더블클릭: 이름 바꾸기";
+    b.ondblclick = async () => { const v = settings.views.find(x => x.id === b.dataset.view); const n = prompt("뷰 이름", v.name); if (n && n !== v.name) { v.name = n; await saveSettings(); renderTabs(); } };
+  });
   const add = $("#addView");
   if (add) add.onclick = async () => { const n = prompt("새 뷰 이름"); if (!n) return; const v = { id: uid(), name: n, widgets: [] }; settings.views.push(v); viewId = v.id; await saveSettings(); load(); };
 }
@@ -333,7 +346,9 @@ function flattenRules(rules, depth = 0, prefix = "") {
 /** 분류 규칙 편집(트리) + 최근 7일 미분류 목록(사용 시간 순). kind: pc(app·title) | ph(package) */
 function renderRules(c, kind) {
   const key = kind === "pc" ? "categories" : "phone_categories";
-  const rules = settings[key] || (settings[key] = []);
+  if (!Array.isArray(settings[key])) settings[key] = [];
+  const R = () => settings[key];   // 저장하면 settings가 새 객체로 바뀌므로 배열을 붙들지 않는다
+  const rules = R();
   const cols = kind === "pc" ? [["app", "app (exe 이름)"], ["title", "title (창 제목)"]] : [["app", "package"]];
   const rows = flattenRules(rules);
   c.innerHTML = `<h2>분류 규칙 › ${kind === "pc" ? "컴퓨터" : "휴대폰"}</h2>
@@ -345,23 +360,24 @@ function renderRules(c, kind) {
     <div class="row"><button id="addRule">규칙 추가</button><button id="saveRules">저장</button><span id="ruleMsg" class="mute"></span></div>
     <h3>최근 7일 미분류 <span class="mute">어느 규칙에도 안 맞는 ${kind === "pc" ? "앱" : "package"}, 사용 시간 순. "추가"를 누르면 그 ${kind === "pc" ? "앱" : "package"}으로 새 규칙 줄을 만들고 이름을 제안한다</span></h3>
     <div id="unmatched" class="mute">불러오는 중…</div>`;
-  const collect = () => c.querySelectorAll("input[data-p]").forEach(el => { ruleAt(rules, el.dataset.p)[el.dataset.k] = el.value; });
-  c.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { collect(); const { list, i } = listOf(rules, b.dataset.del); list.splice(i, 1); renderSettingsPage(); });
-  c.querySelectorAll("[data-up]").forEach(b => b.onclick = () => { collect(); const { list, i } = listOf(rules, b.dataset.up); if (i === 0) return; const r = list.splice(i, 1)[0]; list.splice(i - 1, 0, r); renderSettingsPage(); });
+  const collect = () => c.querySelectorAll("input[data-p]").forEach(el => { const r = ruleAt(R(), el.dataset.p); if (r) r[el.dataset.k] = el.value; });
+  c.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { collect(); const { list, i } = listOf(R(), b.dataset.del); list.splice(i, 1); renderSettingsPage(); });
+  c.querySelectorAll("[data-up]").forEach(b => b.onclick = () => { collect(); const { list, i } = listOf(R(), b.dataset.up); if (i === 0) return; const r = list.splice(i, 1)[0]; list.splice(i - 1, 0, r); renderSettingsPage(); });
   c.querySelectorAll("[data-child]").forEach(b => b.onclick = () => {
-    collect(); const r = ruleAt(rules, b.dataset.child); (r.children || (r.children = [])).push({ name: "", app: "", title: "" }); renderSettingsPage();
+    collect(); const r = ruleAt(R(), b.dataset.child); (r.children || (r.children = [])).push({ name: "", app: "", title: "" }); renderSettingsPage();
     const inputs = $("#settingsContent").querySelectorAll(`input[data-p^="${b.dataset.child}."][data-k="name"]`); inputs[inputs.length - 1]?.focus();
   });
-  $("#addRule").onclick = () => { collect(); rules.push({ name: "", app: "", title: "" }); renderSettingsPage(); };
-  $("#saveRules").onclick = async () => { collect(); settings[key] = pruneRules(rules); await saveSettings(); $("#ruleMsg").textContent = "저장됨"; renderSettingsPage(); };
-  renderUnmatched(c.querySelector("#unmatched"), kind, rules);
+  $("#addRule").onclick = () => { collect(); R().push({ name: "", app: "", title: "" }); renderSettingsPage(); };
+  $("#saveRules").onclick = async () => { collect(); settings[key] = pruneRules(R()); await saveSettings(); renderSettingsPage(); $("#ruleMsg").textContent = "저장됨"; };
+  renderUnmatched(c.querySelector("#unmatched"), kind, R);
 }
 /** 저장 전 정리: 이름 없는 규칙은 버리고, 빈 children은 지운다. */
 function pruneRules(rules) {
   return (rules || []).filter(r => r.name).map(r => { const o = { name: r.name, app: r.app || "", title: r.title || "" }; const ch = pruneRules(r.children); if (ch.length) o.children = ch; return o; });
 }
 
-async function renderUnmatched(el, kind, rules) {
+async function renderUnmatched(el, kind, R) {
+  const rules = R();
   const end = new Date(), start = new Date(end.getTime() - 7 * 86400e3);
   const range = { start: start.toISOString(), end: end.toISOString() };
   try {
@@ -387,8 +403,8 @@ async function renderUnmatched(el, kind, rules) {
       (items.length > 40 ? `<div class="mute">… ${items.length - 40}개 더</div>` : "");
     el.querySelectorAll("[data-mk]").forEach(b => b.onclick = () => {
       // 입력 중인 값을 잃지 않게 모으고, 그 앱으로 규칙 줄 추가
-      el.closest(".content").querySelectorAll("input[data-p]").forEach(x => { ruleAt(rules, x.dataset.p)[x.dataset.k] = x.value; });
-      rules.push({ name: b.dataset.name || "", app: "^" + escRe(b.dataset.mk) + "$", title: "" });
+      el.closest(".content").querySelectorAll("input[data-p]").forEach(x => { const r = ruleAt(R(), x.dataset.p); if (r) r[x.dataset.k] = x.value; });
+      R().push({ name: b.dataset.name || "", app: "^" + escRe(b.dataset.mk) + "$", title: "" });
       renderSettingsPage();
       const inputs = $("#settingsContent").querySelectorAll('input[data-k="name"]'); const last = inputs[inputs.length - 1]; if (last) { last.focus(); last.select(); }
     });
@@ -415,6 +431,7 @@ async function init() {
 }
 
 function showPage(name) {
+  if (name === "main" && $("#main").style.display !== "none") return;
   for (const id of ["main", "pluginsPage", "settingsPage"]) $("#" + id).style.display = id === name ? "block" : "none";
   $("#plugins").textContent = name === "pluginsPage" ? "타임라인" : "플러그인";
   $("#settings").textContent = name === "settingsPage" ? "타임라인" : "설정";
@@ -422,9 +439,9 @@ function showPage(name) {
 }
 window.showPage = showPage;
 
-$("#prev").onclick = () => { dayOffset--; load(); };
-$("#next").onclick = () => { dayOffset++; load(); };
-$("#today").onclick = () => { dayOffset = 0; load(); };
+$("#prev").onclick = () => { dayOffset--; showPage("main"); load(); };
+$("#next").onclick = () => { dayOffset++; showPage("main"); load(); };
+$("#today").onclick = () => { dayOffset = 0; showPage("main"); load(); };
 $("#reload").onclick = init;
 $("#edit").onclick = () => { editing = !editing; $("#edit").classList.toggle("on", editing); load(); };
 $("#settings").onclick = () => showPage($("#settingsPage").style.display === "block" ? "main" : "settingsPage");
