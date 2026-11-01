@@ -21,6 +21,6 @@
     }
   ],
   "settings": [
-    { "key": "root", "type": "text", "default": "~/.claude/projects", "label": "세션 로그 폴더" }
+    { "key": "root", "type": "string", "default": "~/.claude/projects", "label": "세션 로그 폴더" }
   ]
 }
