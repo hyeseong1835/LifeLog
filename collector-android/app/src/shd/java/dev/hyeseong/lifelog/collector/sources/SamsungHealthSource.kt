@@ -93,17 +93,19 @@ class SamsungHealthSource(private val context: Context) : ReadSource {
             }
             "sleep_score", "sh_sleep", "sh_sleep_stage" -> {
                 // 범위 안에서 끝난 잠. 긴 잠은 하루 전에 시작하므로 시작 필터를 하루 넓힌다
+                // SLEEP 레코드의 startTime/endTime은 날짜 경계(00:00)다. 실제 잠든 시각은 세션(SESSIONS)에 있다
                 val sleeps = readDual(DataTypes.SLEEP.readDataRequestBuilder.setLocalTimeFilter(LocalTimeFilter.of(lFrom.minusHours(24), lTo)).build())
-                    .filter { p -> p.endTime?.let { it >= from && it < to } == true }
-                for (p in sleeps) {
-                    val end = p.endTime ?: continue
+                    .map { p -> val ss = p.getValue(DataType.SleepType.SESSIONS).orEmpty(); Triple(p, ss.minOfOrNull { it.startTime } ?: p.startTime, ss.maxOfOrNull { it.endTime } ?: p.endTime) }
+                    .filter { (_, _, end) -> end != null && end >= from && end < to }
+                for ((p, start, end0) in sleeps) {
+                    val end = end0 ?: continue
                     when (metric) {
-                        "sleep_score" -> p.getValue(DataType.SleepType.SLEEP_SCORE)?.let { span(p.startTime, end, it.toDouble(), "score", "sleep") }
+                        "sleep_score" -> p.getValue(DataType.SleepType.SLEEP_SCORE)?.let { span(start, end, it.toDouble(), "score", "sleep") }
                         "sh_sleep" -> {
                             val sessions = p.getValue(DataType.SleepType.SESSIONS).orEmpty()
                             val stages = JSONObject()
                             sessions.flatMap { it.stages.orEmpty() }.groupBy { stageName(it.stage) }.forEach { (k, l) -> stages.put(k, l.sumOf { Duration.between(it.startTime, it.endTime).toMinutes() }) }
-                            span(p.startTime, end, Duration.between(p.startTime, end).toMinutes().toDouble(), "min", null,
+                            span(start, end, Duration.between(start, end).toMinutes().toDouble(), "min", null,
                                 JSONObject().put("stages_min", stages).put("sessions", sessions.size).put("score", p.getValue(DataType.SleepType.SLEEP_SCORE) ?: JSONObject.NULL))
                         }
                         else -> p.getValue(DataType.SleepType.SESSIONS).orEmpty().flatMap { it.stages.orEmpty() }.forEach { st ->
