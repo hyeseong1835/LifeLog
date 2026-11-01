@@ -199,7 +199,8 @@ class CollectorService : Service() {
         override fun read(source: String, argsJson: String): String {
             requireCap("read:$source")
             val s = readSources[source] ?: throw IllegalStateException("없는 소스: $source")
-            return s.read(JSONObject(argsJson))
+            // Error(NoClassDefFoundError 등)는 JS 브리지가 잡지 못해 서비스가 죽는다. 플러그인이 catch할 수 있는 예외로 바꾼다
+            return try { s.read(JSONObject(argsJson)) } catch (e: Exception) { throw e } catch (e: Throwable) { throw IllegalStateException("$source: ${e.javaClass.simpleName}: ${e.message}", e) }
         }
         override fun spanOpen(output: String, rowJson: String): String {
             val o = output(output); val (cols, start, _) = parseRow(o, rowJson)

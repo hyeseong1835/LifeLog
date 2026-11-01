@@ -49,6 +49,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
     implementation("org.postgresql:postgresql:42.2.8")      // Postgres 직접 연결. 42.2.9+는 maxResultBuffer 파서가 java.lang.management를 써서 Android에서 못 붙는다
-    if (!shdAar.isEmpty) implementation(shdAar)                 // 삼성 헬스 Data SDK(있을 때만)
+    if (!shdAar.isEmpty) {
+        implementation(shdAar)                                   // 삼성 헬스 Data SDK(있을 때만)
+        implementation("org.jetbrains.kotlin:kotlin-parcelize-runtime:2.2.10") // SDK의 @Parcelize 클래스가 런타임에 찾는다
+    }
     implementation("wang.harlon.quickjs:wrapper-android:3.2.0") // JS 수집기 런타임(QuickJS). 16KB 페이지 정렬된 .so
 }
