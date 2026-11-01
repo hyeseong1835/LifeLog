@@ -423,7 +423,7 @@ function renderRules(c, kind) {
     await lifelog.setSettings(copy);
     load();
     const msg = $("#ruleMsg"); if (msg) { msg.textContent = "저장됨 " + new Date().toLocaleTimeString("ko-KR", { hour12: false }); }
-    const um = c.querySelector("#unmatched"); if (um) renderUnmatched(um, kind, () => pruneRules(R()), collect);
+    const um = c.querySelector("#unmatched"); if (um) renderUnmatched(um, kind, R, collect);   // 실제 배열을 넘겨야 "추가"가 거기에 들어간다
   };
   c._saveNow = saveNow;
   c.querySelectorAll("input[data-p], input[data-ctext]").forEach(el => el.addEventListener("input", () => scheduleSave(saveNow)));
