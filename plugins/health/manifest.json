@@ -1,7 +1,7 @@
 {
   "type": "collector",
   "id": "health",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "건강",
   "min_host_version": 1,
   "runtimes": {
@@ -69,6 +69,12 @@
         "sleep"
       ],
       "label": "읽을 지표"
+    },
+    {
+      "key": "shealth_metrics",
+      "type": "list",
+      "default": [],
+      "label": "삼성 헬스 SDK 지표(비우면 Health Connect에 없는 것만)"
     }
   ]
 }

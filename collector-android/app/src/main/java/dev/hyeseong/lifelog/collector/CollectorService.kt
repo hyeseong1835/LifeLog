@@ -90,6 +90,7 @@ class CollectorService : Service() {
 
         readSources["usage"] = UsageSource(this)
         readSources["health"] = HealthSource(this)
+        readSources["shealth"] = SamsungHealthSource(this)
         handler.post {
             loadAndStart()
             // 업로더는 플러그인 등록으로 테이블 메타가 채워진 뒤에 돌린다(큐에 남은 행의 메타를 못 찾는 일이 없게)
@@ -113,7 +114,7 @@ class CollectorService : Service() {
                 if (!inst.enabled) { log(this, "[${m.id}] 꺼져 있음"); continue }
                 // 필수 소스가 이 호스트에 없으면 못 돌린다. 선택 소스(예: read:shealth)는 has()로 플러그인이 확인한다
                 val missing = m.capabilities.filter { it.second }.map { it.first }.filter { it.startsWith("event:") || it.startsWith("read:") }
-                    .map { it.substringAfter(':') }.filter { it !in setOf("screen", "location", "media", "usage", "health") }
+                    .map { it.substringAfter(':') }.filter { it !in setOf("screen", "location", "media", "usage", "health", "shealth") }
                 if (missing.isNotEmpty()) { log(this, "[${m.id}] 이 호스트에 없는 필수 소스: $missing"); continue }
                 val p = JsPlugin(m, pdir, HostImpl(m))
                 p.load()

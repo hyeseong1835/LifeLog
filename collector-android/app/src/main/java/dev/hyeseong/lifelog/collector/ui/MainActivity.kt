@@ -25,6 +25,7 @@ import dev.hyeseong.lifelog.collector.core.Manifest
 import dev.hyeseong.lifelog.collector.core.PluginInstaller
 import dev.hyeseong.lifelog.collector.core.Queue
 import dev.hyeseong.lifelog.collector.sources.HealthSource
+import dev.hyeseong.lifelog.collector.sources.SamsungHealthSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -118,6 +119,15 @@ class MainActivity : ComponentActivity() {
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }) { Text("알림 접근(미디어)") }
+                Button(onClick = {
+                    scope.launch {
+                        msg = try {
+                            if (!SamsungHealthSource.INCLUDED) "이 빌드에는 삼성 헬스 SDK가 없음"
+                            else if (!SamsungHealthSource.available(this@MainActivity)) "삼성 헬스 앱 없음"
+                            else "삼성 헬스 SDK: 허용 ${SamsungHealthSource.requestPermissions(this@MainActivity)}개 (개발자 모드 필요)"
+                        } catch (e: Throwable) { "삼성 헬스 SDK: ${e.message}" }
+                    }
+                }) { Text("삼성 헬스 SDK") }
                 Button(onClick = { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }) { Text("배터리 최적화 제외") }
             }
 

@@ -12,3 +12,4 @@ collector-android/build/
 collector-android/app/build/
 collector-android/local.properties
 collector-android/.kotlin/
+collector-android/app/libs/*.aar

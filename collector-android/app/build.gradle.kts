@@ -3,6 +3,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// 삼성 헬스 Data SDK: 삼성 개발자 사이트에서 받은 aar를 app/libs/에 두면 실제 구현(src/shd)을, 없으면 빈 구현(src/noshd)을 쓴다
+val shdAar = fileTree("libs") { include("samsung-health-data-api*.aar") }
+
 android {
     namespace = "dev.hyeseong.lifelog.collector"
     compileSdk = 36
@@ -17,6 +20,7 @@ android {
 
     // 첫 플러그인은 저장소 plugins/를 assets로 묶어 첫 실행 때 filesDir/plugins로 푼다(GitHub URL 설치는 나중)
     sourceSets.getByName("main").assets.directories.add("../../plugins")
+    sourceSets.getByName("main").kotlin.directories.add(if (shdAar.isEmpty) "src/noshd/java" else "src/shd/java")
 
     buildTypes {
         release { isMinifyEnabled = false }
@@ -45,5 +49,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
     implementation("org.postgresql:postgresql:42.2.8")      // Postgres 직접 연결. 42.2.9+는 maxResultBuffer 파서가 java.lang.management를 써서 Android에서 못 붙는다
+    if (!shdAar.isEmpty) implementation(shdAar)                 // 삼성 헬스 Data SDK(있을 때만)
     implementation("wang.harlon.quickjs:wrapper-android:3.2.0") // JS 수집기 런타임(QuickJS). 16KB 페이지 정렬된 .so
 }
