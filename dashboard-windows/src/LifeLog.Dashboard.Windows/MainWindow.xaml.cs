@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json;
 using System.Windows;
 using LifeLog.Core;
 using Microsoft.Web.WebView2.Core;
@@ -52,7 +53,18 @@ public partial class MainWindow : Window
             await core.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(Path.Combine(webDir, "bridge.js")));
             core.WebMessageReceived += (_, e) => _ = _bridge.HandleAsync(e);
             // 플러그인 iframe의 탐색 실패를 로그로(가상 호스트 매핑 문제 추적)
-            core.FrameCreated += (_, fe) => fe.Frame.NavigationCompleted += (_, ne) => { if (!ne.IsSuccess) Log($"iframe 탐색 실패: {ne.WebErrorStatus}"); };
+            core.FrameCreated += (_, fe) =>
+            {
+                string lastUri = "";
+                fe.Frame.NavigationStarting += (_, ns) => lastUri = ns.Uri;
+                fe.Frame.NavigationCompleted += (_, ne) =>
+                {
+                    if (ne.IsSuccess) return;
+                    Log($"iframe 탐색 실패: {ne.WebErrorStatus} {lastUri}");
+                    // 셸에 알려 그 iframe을 다시 읽게 한다(간헐적 실패 대응)
+                    core.PostWebMessageAsJson(JsonSerializer.Serialize(new { lifelog = "frameError", url = lastUri, status = ne.WebErrorStatus.ToString() }));
+                };
+            };
             Log("WebView2 준비, 브리지 연결");
             Status.Visibility = Visibility.Collapsed;
             // 개발용: --screenshot 경로 → 로드 뒤 4초 후 캡처하고 종료

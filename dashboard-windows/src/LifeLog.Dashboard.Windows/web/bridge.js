@@ -34,6 +34,15 @@
   if (isTop) {
     chrome.webview.addEventListener("message", e => {
       const reply = e.data;
+      if (reply && reply.lifelog === "frameError") {   // 호스트가 알린 iframe 탐색 실패 → 최대 3번 다시 읽기
+        for (const f of document.querySelectorAll("iframe")) {
+          if (!reply.url || !reply.url.startsWith(f.src.split("?")[0])) continue;
+          const n = Number(f.dataset.retry || 0); if (n >= 3) continue;
+          f.dataset.retry = n + 1;
+          setTimeout(() => { f.src = f.src.split("?")[0] + "?retry=" + (n + 1); }, 400 * (n + 1));
+        }
+        return;
+      }
       if (settle(reply)) return;
       // 플러그인 iframe의 호출에 대한 응답: id 접두가 플러그인 id
       const from = reply.id.split(":")[0];

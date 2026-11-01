@@ -130,11 +130,16 @@ async function load() {
     const add = document.createElement("div"); add.className = "addbar";
     const opts = [{ id: "builtin:timeline", name: "타임라인 (내장)" }, ...renderers.filter(r => r.slot === "card").map(r => ({ id: r.id, name: `${r.name} (${r.id})` }))];
     add.innerHTML = `<select id="addType">${opts.map(o => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join("")}</select><button id="addWidget">위젯 추가</button>
-      <span class="spacer"></span><button id="renameView">뷰 이름</button><button id="deleteView">뷰 지우기</button>`;
+      <span class="spacer"></span><button id="resetView" title="위젯 목록과 크기를 기본값으로">뷰 초기화</button><button id="renameView">뷰 이름</button><button id="deleteView">뷰 지우기</button>`;
     grid.appendChild(add);
     add.querySelector("#addWidget").onclick = async () => {
       const type = add.querySelector("#addType").value;
       view.widgets.push({ id: uid(), type, w: type === "builtin:timeline" ? 3 : 1, settings: {} });
+      await saveSettings(); load();
+    };
+    add.querySelector("#resetView").onclick = async () => {
+      if (!confirm(`뷰 "${view.name}"의 위젯을 기본 구성으로 되돌릴까요?`)) return;
+      view.widgets = JSON.parse(JSON.stringify(DEFAULT_VIEWS[0].widgets)).map(w => Object.assign(w, { id: uid() }));
       await saveSettings(); load();
     };
     add.querySelector("#renameView").onclick = async () => { const n = prompt("뷰 이름", view.name); if (n) { view.name = n; await saveSettings(); load(); } };
