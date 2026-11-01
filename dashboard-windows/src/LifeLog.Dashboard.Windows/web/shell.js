@@ -401,15 +401,15 @@ function renderRules(c, kind) {
     const inputs = $("#settingsContent").querySelectorAll(`input[data-p^="${b.dataset.child}."][data-k="name"]`); inputs[inputs.length - 1]?.focus();
   });
   $("#addRule").onclick = () => { collect(); R().push({ name: "", app: "", title: "" }); renderSettingsPage(); };
-  $("#saveRules").onclick = async () => { collect(); settings[key] = pruneRules(R()); await saveSettings(); renderSettingsPage(); $("#ruleMsg").textContent = "저장됨"; };
-  renderUnmatched(c.querySelector("#unmatched"), kind, R);
+  $("#saveRules").onclick = async () => { collect(); settings[key] = pruneRules(R()); await saveSettings(); load(); renderSettingsPage(); $("#ruleMsg").textContent = "저장됨"; };
+  renderUnmatched(c.querySelector("#unmatched"), kind, R, collect);
 }
 /** 저장 전 정리: 이름 없는 규칙은 버리고, 빈 children은 지운다. */
 function pruneRules(rules) {
   return (rules || []).filter(r => r.name).map(r => { const o = { name: r.name, app: r.app || "", title: r.title || "" }; if (r.color) o.color = r.color; const ch = pruneRules(r.children); if (ch.length) o.children = ch; return o; });
 }
 
-async function renderUnmatched(el, kind, R) {
+async function renderUnmatched(el, kind, R, collect) {
   const rules = R();
   const end = new Date(), start = new Date(end.getTime() - 7 * 86400e3);
   const range = { start: start.toISOString(), end: end.toISOString() };
@@ -436,7 +436,7 @@ async function renderUnmatched(el, kind, R) {
       (items.length > 40 ? `<div class="mute">… ${items.length - 40}개 더</div>` : "");
     el.querySelectorAll("[data-mk]").forEach(b => b.onclick = () => {
       // 입력 중인 값을 잃지 않게 모으고, 그 앱으로 규칙 줄 추가
-      el.closest(".content").querySelectorAll("input[data-p]").forEach(x => { const r = ruleAt(R(), x.dataset.p); if (r) r[x.dataset.k] = x.value; });
+      collect();
       R().push({ name: b.dataset.name || "", app: "^" + escRe(b.dataset.mk) + "$", title: "" });
       renderSettingsPage();
       const inputs = $("#settingsContent").querySelectorAll('input[data-k="name"]'); const last = inputs[inputs.length - 1]; if (last) { last.focus(); last.select(); }
