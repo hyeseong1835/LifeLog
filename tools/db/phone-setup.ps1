@@ -21,8 +21,11 @@ $pkg = "dev.hyeseong.lifelog.collector"
 
 $secure = Read-Host "Supabase DB 비밀번호 (postgres)" -AsSecureString
 $plain = [Runtime.InteropServices.Marshal]::PtrToStringUni([Runtime.InteropServices.Marshal]::SecureStringToGlobalAllocUnicode($secure))
-$env:LIFELOG_ADMIN_DSN = "host=$DbHost port=$Port dbname=$Database user=postgres.$ProjectRef password=$plain sslmode=require"
+# 공백·따옴표가 든 비밀번호도 되게 작은따옴표로 감싼다(libpq conninfo 규칙: 백슬래시와 작은따옴표를 백슬래시로 이스케이프)
+$esc = $plain.Replace('\', '\\').Replace("'", "\'")
+$env:LIFELOG_ADMIN_DSN = "host=$DbHost port=$Port dbname=$Database user=postgres.$ProjectRef password='$esc' sslmode=require"
 $plain = $null
+$esc = $null
 
 if (-not $SkipMigrate) {
     Write-Host "== 1. 코어 스키마 마이그레이션"

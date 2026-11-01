@@ -20,9 +20,12 @@ $user = "postgres.$ProjectRef"
 $secure = Read-Host "Supabase DB 비밀번호 (postgres)" -AsSecureString
 $plain = [Runtime.InteropServices.Marshal]::PtrToStringUni([Runtime.InteropServices.Marshal]::SecureStringToGlobalAllocUnicode($secure))
 # psycopg는 키워드 형식, Npgsql은 세미콜론 형식. 둘 다 URL이 아니라 특수 문자가 안전하다.
-$env:LIFELOG_ADMIN_DSN = "host=$DbHost port=$Port dbname=$Database user=$user password=$plain sslmode=require"
-$npgsql = "Host=$DbHost;Port=$Port;Database=$Database;Username=$user;Password=$plain;SSL Mode=Require"
+# 공백·따옴표가 든 비밀번호도 되게 작은따옴표로 감싼다(libpq conninfo 규칙: 백슬래시와 작은따옴표를 백슬래시로 이스케이프)
+$esc = $plain.Replace('\', '\\').Replace("'", "\'")
+$env:LIFELOG_ADMIN_DSN = "host=$DbHost port=$Port dbname=$Database user=$user password='$esc' sslmode=require"
+$npgsql = "Host=$DbHost;Port=$Port;Database=$Database;Username=$user;Password='$plain';SSL Mode=Require"
 $plain = $null
+$esc = $null
 
 Write-Host "== 1. 코어 스키마 마이그레이션"
 python tools/db/migrate.py
