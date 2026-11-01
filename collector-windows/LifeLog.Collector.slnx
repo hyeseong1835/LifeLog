@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LifeLog.Collector.Windows/LifeLog.Collector.Windows.csproj" />
+    <Project Path="src/LifeLog.Core/LifeLog.Core.csproj" />
+  </Folder>
+</Solution>

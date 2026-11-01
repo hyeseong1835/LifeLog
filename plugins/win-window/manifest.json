@@ -1,0 +1,43 @@
+{
+  "type": "collector",
+  "id": "win-window",
+  "version": "1.0.0",
+  "name": "포커스 창",
+  "min_host_version": 1,
+  "runtimes": {
+    "js": "main.js"
+  },
+  "capabilities": [
+    {
+      "id": "event:window",
+      "required": true
+    }
+  ],
+  "outputs": [
+    {
+      "name": "window",
+      "kind": "span",
+      "schema_version": 1,
+      "columns": {
+        "app": "text",
+        "title": "text",
+        "pid": "integer"
+      },
+      "label": "app",
+      "identity": [
+        "app"
+      ],
+      "index": [
+        "app"
+      ]
+    }
+  ],
+  "privacy": [
+    {
+      "key": "mask_title_apps",
+      "type": "list",
+      "default": [],
+      "label": "제목을 가릴 앱"
+    }
+  ]
+}
