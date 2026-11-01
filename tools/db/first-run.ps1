@@ -41,10 +41,10 @@ if (-not $SkipSetup) {
     $env:LIFELOG_ADMIN_DSN = $npgsql
     # 이관이 기기를 먼저 만들었으면 비밀번호만 다시 받는다
     $cfgDir = Join-Path $env:LOCALAPPDATA "LifeLog\collector"
-    & $exe setup --device $Device --name "노트북" --host $DbHost --port $Port --database $Database
+    & $exe setup --device $Device --name "노트북" --host $DbHost --port $Port --database $Database --tenant $ProjectRef
     if ($LASTEXITCODE -ne 0) {
         Write-Host "   setup 실패(이미 등록된 기기면 정상). reset_device_password로 비밀번호를 다시 받습니다."
-        & $exe setup-reset --device $Device --host $DbHost --port $Port --database $Database
+        & $exe setup-reset --device $Device --host $DbHost --port $Port --database $Database --tenant $ProjectRef
         if ($LASTEXITCODE -ne 0) { throw "기기 설정 실패" }
     }
     foreach ($p in "win-window", "win-afk", "win-power", "win-media") {

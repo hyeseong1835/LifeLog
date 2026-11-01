@@ -12,7 +12,8 @@ static class Cli
     const string Usage = """
         lifelog-collector <명령>
 
-          setup   --device ID --name 이름 --host H --port P --database DB [--no-ssl]
+          setup   --device ID --name 이름 --host H --port P --database DB [--no-ssl] [--tenant 프로젝트ref]
+                  --tenant: Supabase 풀러는 사용자 이름이 롤.프로젝트ref 꼴이어야 한다. 맨 Postgres면 생략
           setup-reset  같은 인자. 이미 등록된 기기의 비밀번호를 다시 받아 설정한다
                   관리자 접속 문자열은 환경 변수 LIFELOG_ADMIN_DSN 또는 표준 입력으로 받는다(저장하지 않음).
                   기기 롤을 만들고 비밀번호를 DPAPI로 보호해 config.json에 둔다.
@@ -46,6 +47,7 @@ static class Cli
                 case "run": return await RunHostAsync(args.Contains("--tray"));
                 case "stop": return Stop();
                 case "autostart": return Autostart(args.Length > 1 && args[1] == "on");
+                case "set-tenant": return SetTenant(args.Length > 1 ? args[1] : "");
                 case "status": return await StatusAsync();
                 default: Console.WriteLine(Usage); return 1;
             }
@@ -91,7 +93,7 @@ static class Cli
             }
             pw = (string)(await cmd.ExecuteScalarAsync())!;
         }
-        var cfg = new Config { Device = device, Host = host, Port = port, Database = db, Ssl = ssl };
+        var cfg = new Config { Device = device, Host = host, Port = port, Database = db, Ssl = ssl, Tenant = Opt(a, "--tenant") ?? "" };
         cfg.SetPassword(pw);
         cfg.Save();
         Console.WriteLine($"기기 {device} 등록 완료. 설정: {Config.Dir}");
@@ -164,6 +166,15 @@ static class Cli
         return 0;
     }
 
+    static int SetTenant(string tenant)
+    {
+        var cfg = Config.Load() ?? throw new InvalidOperationException("setup을 먼저 하세요");
+        cfg.Tenant = tenant;
+        cfg.Save();
+        Console.WriteLine(string.IsNullOrEmpty(tenant) ? "테넌트 접미사 없음" : $"접속 사용자: {cfg.User}");
+        return 0;
+    }
+
     static int Stop()
     {
         if (!EventWaitHandle.TryOpenExisting(StopEventName, out var ev)) { Console.WriteLine("실행 중인 수집기가 없습니다"); return 1; }
@@ -206,6 +217,11 @@ static class Cli
                 var m = Manifest.Load(Path.Combine(dir, "manifest.json"));
                 var inst = await db.GetInstallAsync(m.Id, cfg.Device);
                 Console.WriteLine($"  {m.Id} {m.Version}  {(inst is null ? "미등록" : inst.Enabled ? "켜짐" : "꺼짐")}  권한 {(inst is null ? "-" : string.Join(",", inst.Granted))}");
+                foreach (var o in m.Outputs)
+                {
+                    var n = await db.CountTodayAsync(m.Id + "/" + o.Name, o.IsSpan, cfg.Device);
+                    Console.WriteLine($"      {o.Name}: 오늘 {n}행");
+                }
             }
         }
         return 0;

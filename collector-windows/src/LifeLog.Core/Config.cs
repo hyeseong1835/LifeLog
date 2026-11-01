@@ -21,10 +21,12 @@ public sealed class Config
     [JsonPropertyName("port")] public int Port { get; set; } = 5432;
     [JsonPropertyName("database")] public string Database { get; set; } = "";
     [JsonPropertyName("ssl")] public bool Ssl { get; set; } = true;
+    /// <summary>풀러 테넌트 접미사. Supabase 풀러는 사용자 이름이 `롤.프로젝트ref` 꼴이어야 테넌트를 안다. 맨 Postgres면 비워 둔다.</summary>
+    [JsonPropertyName("tenant")] public string Tenant { get; set; } = "";
     /// <summary>DPAPI로 보호한 비밀번호(base64). 평문은 메모리에서만.</summary>
     [JsonPropertyName("password_protected")] public string PasswordProtected { get; set; } = "";
 
-    public string User => "lifelog_device_" + Device;
+    public string User => "lifelog_device_" + Device + (string.IsNullOrEmpty(Tenant) ? "" : "." + Tenant);
 
     public static Config? Load()
     {

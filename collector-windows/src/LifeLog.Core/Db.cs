@@ -72,6 +72,15 @@ public sealed class Db : IAsyncDisposable
         return JsonDocument.Parse(s).RootElement.Clone();
     }
 
+    /// <summary>뷰에서 이 기기의 오늘(UTC 기준 24시간) 행 수. status 명령용.</summary>
+    public async Task<long> CountTodayAsync(string view, bool isSpan, string device, CancellationToken ct = default)
+    {
+        var col = isSpan ? "start" : "time";
+        await using var cmd = _ds.CreateCommand($"SELECT count(*) FROM lifelog.\"{view.Replace("\"", "\"\"")}\" WHERE device = $1 AND {col} > now() - interval '24 hours'");
+        cmd.Parameters.Add(new NpgsqlParameter { Value = device });
+        return Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
+    }
+
     public async Task TouchLastSeenAsync(string device, CancellationToken ct = default)
     {
         await using var cmd = _ds.CreateCommand("UPDATE lifelog.devices SET last_seen = now() WHERE id = $1");
