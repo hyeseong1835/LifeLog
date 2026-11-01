@@ -51,12 +51,14 @@ class MainActivity : ComponentActivity() {
     fun Screen() {
         val cfg = remember { Config(this) }
         val scope = rememberCoroutineScope()
-        var device by remember { mutableStateOf(cfg.device.ifEmpty { "phone" }) }
-        var host by remember { mutableStateOf(cfg.host) }
-        var port by remember { mutableStateOf(cfg.port.toString()) }
-        var database by remember { mutableStateOf(cfg.database) }
-        var tenant by remember { mutableStateOf(cfg.tenant) }
-        var password by remember { mutableStateOf("") }
+        // tools/db/phone-setup.ps1이 adb `am start --es ...`로 넘기는 값으로 칸을 미리 채운다(저장은 버튼을 눌러야)
+        fun extra(k: String, def: String) = intent?.getStringExtra(k)?.takeIf { it.isNotEmpty() } ?: def
+        var device by remember { mutableStateOf(extra("device", cfg.device.ifEmpty { "phone" })) }
+        var host by remember { mutableStateOf(extra("host", cfg.host)) }
+        var port by remember { mutableStateOf(extra("port", cfg.port.toString())) }
+        var database by remember { mutableStateOf(extra("database", cfg.database)) }
+        var tenant by remember { mutableStateOf(extra("tenant", cfg.tenant)) }
+        var password by remember { mutableStateOf(extra("password", "")) }
         var msg by remember { mutableStateOf("") }
         var pluginRows by remember { mutableStateOf(listOf<String>()) }
         var running by remember { mutableStateOf(CollectorService.running) }
