@@ -2,45 +2,37 @@ package dev.hyeseong.lifelog.collector.ui
 
 import android.content.Intent
 import android.os.Bundle
-import android.provider.Settings
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.unit.dp
-import androidx.health.connect.client.PermissionController
 import dev.hyeseong.lifelog.collector.CollectorService
 import dev.hyeseong.lifelog.collector.core.Config
 import dev.hyeseong.lifelog.collector.core.Db
 import dev.hyeseong.lifelog.collector.core.Manifest
 import dev.hyeseong.lifelog.collector.core.PluginInstaller
 import dev.hyeseong.lifelog.collector.core.Queue
-import dev.hyeseong.lifelog.collector.sources.HealthSource
-import dev.hyeseong.lifelog.collector.sources.SamsungHealthSource
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 
-/** 설정·권한·플러그인·실행을 한 화면에. 비밀번호는 노트북 대시보드/CLI에서 reset_device_password로 받아 붙여 넣는다(QR은 나중). */
+/**
+ * 수집기 앱 화면. 아래 탭 4개: 상태 / 플러그인 / 권한 / 연결. 플러그인을 누르면 설정·권한 편집 화면이 따로 열린다.
+ * 비밀번호는 노트북 대시보드/CLI에서 reset_device_password로 받아 연결 탭에 붙여 넣는다. 화면은 상태를 보여 주고 버튼을 누르면 Db를 직접 부른다.
+ */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         installBundledPlugins()
-        setContent { MaterialTheme(colorScheme = darkColorScheme()) { Screen() } }
+        setContent { MaterialTheme(colorScheme = darkColorScheme()) { App(this) } }
     }
 
-    /** assets의 저장소 plugins/를 filesDir/plugins로 푼다(첫 실행·갱신). phone-·health만. GitHub URL 설치는 나중. */
+    /** assets의 저장소 plugins/를 filesDir/plugins로 푼다(첫 실행·갱신). phone-·health만. */
     private fun installBundledPlugins() {
         val dest = Config.pluginsDir(this)
         for (id in assets.list("")!!.filter { it.startsWith("phone-") || it == "health" }) {
@@ -48,141 +40,124 @@ class MainActivity : ComponentActivity() {
             for (f in assets.list(id)!!) assets.open("$id/$f").use { i -> File(d, f).outputStream().use { i.copyTo(it) } }
         }
     }
+}
 
-    @Composable
-    fun Screen() {
-        val cfg = remember { Config(this) }
-        val scope = rememberCoroutineScope()
-        // tools/db/phone-setup.ps1이 adb `am start --es ...`로 넘기는 값으로 칸을 미리 채운다(저장은 버튼을 눌러야)
-        fun extra(k: String, def: String) = intent?.getStringExtra(k)?.takeIf { it.isNotEmpty() } ?: def
-        var device by remember { mutableStateOf(extra("device", cfg.device.ifEmpty { "phone" })) }
-        var host by remember { mutableStateOf(extra("host", cfg.host)) }
-        var port by remember { mutableStateOf(extra("port", cfg.port.toString())) }
-        var database by remember { mutableStateOf(extra("database", cfg.database)) }
-        var tenant by remember { mutableStateOf(extra("tenant", cfg.tenant)) }
-        var password by remember { mutableStateOf(extra("password", "")) }
-        var msg by remember { mutableStateOf("") }
-        var pluginRows by remember { mutableStateOf(listOf<String>()) }
-        var running by remember { mutableStateOf(CollectorService.running) }
+/** 화면이 공유하는 상태와 동작. 느린 일(DB)은 전부 IO에서. */
+class AppModel(val activity: MainActivity) {
+    val cfg = Config(activity)
+    var running by mutableStateOf(CollectorService.running)
+    var status by mutableStateOf(CollectorService.status)
+    var queue by mutableStateOf(-1L)
+    var plugins by mutableStateOf(listOf<PluginRow>())
+    var pluginError by mutableStateOf("")
+    var logLines by mutableStateOf(listOf<String>())
+    var busy by mutableStateOf(false)
+    var message by mutableStateOf("")
 
-        val perms = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { msg = "권한: $it" }
-        val health = rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { msg = "Health Connect 허용 ${it.size}개" }
+    class PluginRow(val manifest: Manifest, val dir: File, val install: Db.Install?)
 
-        fun refresh() = scope.launch {
-            running = CollectorService.running
-            pluginRows = withContext(Dispatchers.IO) {
-                try {
-                    val q = Queue(Config.queuePath(this@MainActivity)).use { it.count() }
-                    val lines = mutableListOf("큐 대기 ${q}건 · ${CollectorService.status}")
-                    if (cfg.isComplete) Db(cfg).use { db ->
-                        for (d in Config.pluginsDir(this@MainActivity).listFiles().orEmpty().filter { File(it, "manifest.json").exists() }) {
-                            val m = Manifest.load(d)
-                            val inst = db.getInstall(m.id, cfg.device)
-                            lines += "${m.id} ${m.version}  ${if (inst == null) "미등록" else if (inst.enabled) "켜짐" else "꺼짐"}"
-                        }
-                    }
-                    lines
-                } catch (e: Throwable) { listOf("상태 조회 실패: ${e.message}") }
+    fun localPlugins(): List<Pair<Manifest, File>> = Config.pluginsDir(activity).listFiles().orEmpty()
+        .filter { File(it, "manifest.json").exists() }.sortedBy { it.name }.map { Manifest.load(it) to it }
+
+    suspend fun refresh() {
+        running = CollectorService.running; status = CollectorService.status
+        logLines = withContext(Dispatchers.IO) { Config.logFile(activity).takeIf { it.exists() }?.readLines()?.takeLast(60) ?: emptyList() }
+        withContext(Dispatchers.IO) {
+            queue = try { Queue(Config.queuePath(activity)).use { it.count() } } catch (_: Throwable) { -1L }
+            val local = localPlugins()
+            if (!cfg.isComplete) { plugins = local.map { (m, d) -> PluginRow(m, d, null) }; pluginError = "연결 설정이 없어 등록 상태를 모릅니다"; return@withContext }
+            try {
+                Db(cfg).use { db -> plugins = local.map { (m, d) -> PluginRow(m, d, db.getInstall(m.id, cfg.device)) } }
+                pluginError = ""
+            } catch (e: Throwable) { plugins = local.map { (m, d) -> PluginRow(m, d, null) }; pluginError = "등록 상태 조회 실패: ${e.message}" }
+        }
+    }
+
+    /** 오래 걸리는 동작을 IO에서 돌리고 결과 문장을 메시지로. */
+    suspend fun run(label: String, block: suspend () -> String) {
+        busy = true; message = "$label…"
+        message = try { withContext(Dispatchers.IO) { block() } } catch (e: Throwable) { "$label 실패: ${e.message}" }
+        busy = false
+        refresh()
+    }
+
+    fun startService() { cfg.autostart = true; activity.startForegroundService(Intent(activity, CollectorService::class.java)) }
+    fun stopService() { cfg.autostart = false; activity.stopService(Intent(activity, CollectorService::class.java)) }
+
+    /** 플러그인은 서비스가 시작할 때 읽으므로, 바뀌면 서비스를 다시 시작한다. */
+    suspend fun restartIfRunning() {
+        if (!CollectorService.running) return
+        activity.stopService(Intent(activity, CollectorService::class.java))
+        var waited = 0
+        while (CollectorService.running && waited < 10000) { delay(250); waited += 250 }
+        cfg.autostart = true; activity.startForegroundService(Intent(activity, CollectorService::class.java)); delay(1500)
+    }
+
+    suspend fun registerAll(): String = Db(cfg).use { db ->
+        var n = 0
+        for ((m, _) in localPlugins()) {
+            db.registerPlugin(m, cfg.device)
+            val inst = db.getInstall(m.id, cfg.device)
+            // 이미 등록된 플러그인은 켜짐·설정·권한을 그대로 두고 버전만 올린다. 처음이면 권한 전부 허용하고 켠다
+            val granted = inst?.granted?.toList() ?: m.capabilities.map { it.first }
+            db.setInstall(m.id, cfg.device, m.version, inst?.enabled ?: true, inst?.settings?.toString(), JSONArray(granted).toString()); n++
+        }
+        "플러그인 ${n}개 등록"
+    }
+
+    suspend fun setEnabled(row: PluginRow, on: Boolean): String = Db(cfg).use { db ->
+        val inst = row.install ?: run { db.registerPlugin(row.manifest, cfg.device); null }
+        val granted = inst?.granted?.toList() ?: row.manifest.capabilities.map { it.first }
+        db.setInstall(row.manifest.id, cfg.device, row.manifest.version, on, inst?.settings?.toString(), JSONArray(granted).toString())
+        "${row.manifest.name} ${if (on) "켬" else "끔"}"
+    }
+
+    suspend fun saveInstall(row: PluginRow, enabled: Boolean, settings: JSONObject, granted: Set<String>): String = Db(cfg).use { db ->
+        if (row.install == null) db.registerPlugin(row.manifest, cfg.device)
+        db.setInstall(row.manifest.id, cfg.device, row.manifest.version, enabled, settings.toString(), JSONArray(granted.toList()).toString())
+        "${row.manifest.name} 저장"
+    }
+
+    suspend fun installUrl(url: String): String = Db(cfg).use { db ->
+        val r = PluginInstaller.install(db, cfg.device, Config.pluginsDir(activity), url, true, activity.cacheDir)
+        "${r.manifest.id} ${r.manifest.version} 설치·켬"
+    }
+
+    suspend fun testConnection(): String = Db(cfg).use { "연결 확인: 스키마 버전 ${it.schemaVersion()}" }
+}
+
+enum class Tab(val label: String) { STATUS("상태"), PLUGINS("플러그인"), PERMISSIONS("권한"), CONNECTION("연결") }
+
+@Composable
+fun App(activity: MainActivity) {
+    val model = remember { AppModel(activity) }
+    var tab by remember { mutableStateOf(Tab.STATUS) }
+    var detail by remember { mutableStateOf<String?>(null) }   // 플러그인 설정 화면에 열린 플러그인 id
+    val snack = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) { model.refresh() }
+    LaunchedEffect(model.message) { if (model.message.isNotEmpty()) snack.showSnackbar(model.message) }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snack) },
+        bottomBar = {
+            if (detail == null) NavigationBar {
+                Tab.entries.forEach { t ->
+                    NavigationBarItem(selected = tab == t, onClick = { tab = t }, icon = { Text(t.label.take(1)) }, label = { Text(t.label) })
+                }
             }
         }
-        LaunchedEffect(Unit) { refresh() }
-
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("LifeLog 수집기", style = MaterialTheme.typography.titleLarge)
-            Text("DB 접속 (기기 롤)", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(device, { device = it }, label = { Text("기기 id") }, singleLine = true)
-            OutlinedTextField(host, { host = it }, label = { Text("호스트") }, singleLine = true)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(port, { port = it }, label = { Text("포트") }, singleLine = true, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                OutlinedTextField(database, { database = it }, label = { Text("DB") }, singleLine = true, modifier = Modifier.weight(1f))
+    ) { pad ->
+        Box(Modifier.padding(pad).fillMaxSize()) {
+            val open = detail
+            if (open != null) {
+                val row = model.plugins.firstOrNull { it.manifest.id == open }
+                if (row == null) detail = null else PluginDetailScreen(model, row, onBack = { detail = null })
+            } else when (tab) {
+                Tab.STATUS -> StatusScreen(model)
+                Tab.PLUGINS -> PluginsScreen(model, onOpen = { detail = it })
+                Tab.PERMISSIONS -> PermissionsScreen(model)
+                Tab.CONNECTION -> ConnectionScreen(model)
             }
-            OutlinedTextField(tenant, { tenant = it }, label = { Text("테넌트(Supabase 프로젝트 ref, 맨 Postgres면 비움)") }, singleLine = true)
-            OutlinedTextField(password, { password = it }, label = { Text("기기 비밀번호 (reset_device_password 결과)") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
-            Button(onClick = {
-                cfg.device = device.trim(); cfg.host = host.trim(); cfg.port = port.trim().toIntOrNull() ?: 5432; cfg.database = database.trim(); cfg.tenant = tenant.trim()
-                if (password.isNotEmpty()) cfg.password = password
-                password = ""
-                scope.launch {
-                    msg = withContext(Dispatchers.IO) { try { Db(cfg).use { "연결 확인: 스키마 버전 ${it.schemaVersion()}" } } catch (e: Throwable) { "연결 실패: ${e.message}" } }
-                    refresh()
-                }
-            }) { Text("저장하고 연결 확인") }
-
-            Text("권한", style = MaterialTheme.typography.titleMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }) { Text("사용 정보 접근") }
-                Button(onClick = { perms.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION, android.Manifest.permission.POST_NOTIFICATIONS, android.Manifest.permission.ACTIVITY_RECOGNITION)) }) { Text("위치·알림·활동") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { perms.launch(arrayOf(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION)) }) { Text("위치 항상 허용") }
-                Button(onClick = { if (HealthSource.available(this@MainActivity)) health.launch(HealthSource.PERMISSIONS) else msg = "Health Connect 없음" }) { Text("Health Connect") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }) { Text("알림 접근(미디어)") }
-                Button(onClick = {
-                    scope.launch {
-                        msg = try {
-                            if (!SamsungHealthSource.INCLUDED) "이 빌드에는 삼성 헬스 SDK가 없음"
-                            else if (!SamsungHealthSource.available(this@MainActivity)) "삼성 헬스 앱 없음"
-                            else "삼성 헬스 SDK: 허용 ${SamsungHealthSource.requestPermissions(this@MainActivity)}개 (개발자 모드 필요)"
-                        } catch (e: Throwable) { "삼성 헬스 SDK: ${e.message}" }
-                    }
-                }) { Text("삼성 헬스 SDK") }
-                Button(onClick = { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }) { Text("배터리 최적화 제외") }
-            }
-
-            Text("플러그인", style = MaterialTheme.typography.titleMedium)
-            Button(onClick = {
-                scope.launch {
-                    msg = withContext(Dispatchers.IO) {
-                        try {
-                            Db(cfg).use { db ->
-                                var n = 0
-                                for (d in Config.pluginsDir(this@MainActivity).listFiles().orEmpty().filter { File(it, "manifest.json").exists() }) {
-                                    val m = Manifest.load(d)
-                                    db.registerPlugin(m, cfg.device)
-                                    val granted = JSONArray(m.capabilities.map { it.first }).toString()
-                                    db.setInstall(m.id, cfg.device, m.version, true, null, granted); n++
-                                }
-                                "플러그인 ${n}개 등록·켬(권한 전부 허용)"
-                            }
-                        } catch (e: Throwable) { "등록 실패: ${e.message}" }
-                    }
-                    refresh()
-                }
-            }) { Text("내장 플러그인 전부 등록·켜기") }
-            var url by remember { mutableStateOf("") }
-            OutlinedTextField(url, { url = it }, label = { Text("플러그인 GitHub URL (…/tree/브랜치/폴더)") }, singleLine = true)
-            Button(onClick = {
-                val u = url.trim(); if (u.isEmpty()) return@Button
-                scope.launch {
-                    msg = "설치 중…"
-                    msg = withContext(Dispatchers.IO) {
-                        try {
-                            Db(cfg).use { db ->
-                                val r = PluginInstaller.install(db, cfg.device, Config.pluginsDir(this@MainActivity), u, true, cacheDir)
-                                "${r.manifest.id} ${r.manifest.version} 설치·켬"
-                            }
-                        } catch (e: Throwable) { "설치 실패: ${e.message}" }
-                    }
-                    if (CollectorService.running) {    // 플러그인은 서비스가 시작할 때 읽으므로 다시 시작
-                        stopService(Intent(this@MainActivity, CollectorService::class.java)); kotlinx.coroutines.delay(3000)
-                        cfg.autostart = true; startForegroundService(Intent(this@MainActivity, CollectorService::class.java)); kotlinx.coroutines.delay(2000)
-                    }
-                    refresh()
-                }
-            }) { Text("URL로 설치") }
-            pluginRows.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
-
-            Text("실행", style = MaterialTheme.typography.titleMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { cfg.autostart = true; startForegroundService(Intent(this@MainActivity, CollectorService::class.java)); scope.launch { kotlinx.coroutines.delay(2000); refresh() } }, enabled = !running) { Text("수집 시작") }
-                Button(onClick = { cfg.autostart = false; stopService(Intent(this@MainActivity, CollectorService::class.java)); scope.launch { kotlinx.coroutines.delay(2500); refresh() } }, enabled = running) { Text("중지") }
-                Button(onClick = { refresh() }) { Text("새로고침") }
-            }
-            if (msg.isNotEmpty()) Text(msg)
-            Text("로그", style = MaterialTheme.typography.titleMedium)
-            Text(remember(pluginRows) { Config.logFile(this@MainActivity).takeIf { it.exists() }?.readLines()?.takeLast(15)?.joinToString("\n") ?: "" }, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
