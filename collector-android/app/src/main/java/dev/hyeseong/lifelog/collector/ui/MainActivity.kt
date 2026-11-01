@@ -22,6 +22,7 @@ import dev.hyeseong.lifelog.collector.CollectorService
 import dev.hyeseong.lifelog.collector.core.Config
 import dev.hyeseong.lifelog.collector.core.Db
 import dev.hyeseong.lifelog.collector.core.Manifest
+import dev.hyeseong.lifelog.collector.core.PluginInstaller
 import dev.hyeseong.lifelog.collector.core.Queue
 import dev.hyeseong.lifelog.collector.sources.HealthSource
 import kotlinx.coroutines.Dispatchers
@@ -140,6 +141,27 @@ class MainActivity : ComponentActivity() {
                     refresh()
                 }
             }) { Text("내장 플러그인 전부 등록·켜기") }
+            var url by remember { mutableStateOf("") }
+            OutlinedTextField(url, { url = it }, label = { Text("플러그인 GitHub URL (…/tree/브랜치/폴더)") }, singleLine = true)
+            Button(onClick = {
+                val u = url.trim(); if (u.isEmpty()) return@Button
+                scope.launch {
+                    msg = "설치 중…"
+                    msg = withContext(Dispatchers.IO) {
+                        try {
+                            Db(cfg).use { db ->
+                                val r = PluginInstaller.install(db, cfg.device, Config.pluginsDir(this@MainActivity), u, true, cacheDir)
+                                "${r.manifest.id} ${r.manifest.version} 설치·켬"
+                            }
+                        } catch (e: Throwable) { "설치 실패: ${e.message}" }
+                    }
+                    if (CollectorService.running) {    // 플러그인은 서비스가 시작할 때 읽으므로 다시 시작
+                        stopService(Intent(this@MainActivity, CollectorService::class.java)); kotlinx.coroutines.delay(3000)
+                        cfg.autostart = true; startForegroundService(Intent(this@MainActivity, CollectorService::class.java)); kotlinx.coroutines.delay(2000)
+                    }
+                    refresh()
+                }
+            }) { Text("URL로 설치") }
             pluginRows.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
 
             Text("실행", style = MaterialTheme.typography.titleMedium)

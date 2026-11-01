@@ -1,0 +1,13 @@
+{
+  "name": "lifelog-vscode",
+  "displayName": "LifeLog",
+  "description": "편집 활동(프로젝트·파일·언어·포커스)을 LifeLog 수집기가 읽는 로컬 파일에 기록합니다. 내용은 기록하지 않습니다.",
+  "version": "1.0.0",
+  "publisher": "lifelog",
+  "license": "MIT",
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./extension.js",
+  "contributes": {}
+}

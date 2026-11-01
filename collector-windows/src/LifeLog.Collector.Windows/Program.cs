@@ -22,6 +22,7 @@ static class Cli
           enable <id> | disable <id>
           run [--tray]   수집 시작. --tray면 콘솔을 숨기고 트레이 아이콘으로 돈다
           stop           실행 중인 수집기를 정상 종료시킨다(열린 구간을 닫고 큐를 비운다)
+          reload             실행 중인 수집기에 플러그인 다시 읽기 요청
           autostart on|off   로그온 시 자동 실행(HKCU Run 키)
           status  설정·큐·플러그인 상태
 
@@ -30,6 +31,7 @@ static class Cli
 
     const string StopEventName = @"Local\LifeLog.Collector.Stop";
     const string MutexName = @"Local\LifeLog.Collector.Running";
+    const string ReloadEventName = @"Local\LifeLog.Collector.Reload";
     const string TaskName = "LifeLogCollector";
 
     public static async Task<int> RunAsync(string[] args)
@@ -46,6 +48,7 @@ static class Cli
                 case "disable": return await EnableAsync(args[1], false);
                 case "run": return await RunHostAsync(args.Contains("--tray"));
                 case "stop": return Stop();
+                case "reload": Console.WriteLine(Reload() ? "실행 중인 수집기에 플러그인 다시 읽기를 요청했습니다" : "실행 중인 수집기가 없습니다"); return 0;
                 case "autostart": return Autostart(args.Length > 1 && args[1] == "on");
                 case "set-tenant": return SetTenant(args.Length > 1 ? args[1] : "");
                 case "status": return await StatusAsync();
@@ -102,39 +105,14 @@ static class Cli
 
     static async Task<int> InstallAsync(string[] a)
     {
-        var src = a.Length > 0 ? a[0] : throw new ArgumentException("플러그인 경로가 필요합니다");
+        var src = a.Length > 0 ? a[0] : throw new ArgumentException("플러그인 폴더·zip·GitHub URL이 필요합니다");
         var grantAll = a.Contains("--grant-all");
-        string tmp = src;
-        if (File.Exists(src) && src.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-        {
-            tmp = Path.Combine(Path.GetTempPath(), "lifelog-plugin-" + Guid.NewGuid().ToString("N"));
-            ZipFile.ExtractToDirectory(src, tmp);
-        }
-        var m = Manifest.Load(Path.Combine(tmp, "manifest.json"));
-        var dest = Path.Combine(Config.PluginsDir, m.Id);
-        if (Directory.Exists(dest)) Directory.Delete(dest, true);
-        Directory.CreateDirectory(dest);
-        foreach (var f in Directory.GetFiles(tmp, "*", SearchOption.AllDirectories))
-        {
-            var target = Path.Combine(dest, Path.GetRelativePath(tmp, f));
-            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            File.Copy(f, target, true);
-        }
-
         var cfg = Config.Load() ?? throw new InvalidOperationException("setup을 먼저 하세요");
         await using var db = new Db(cfg.ConnectionString());
-        var r = await db.RegisterPluginAsync(m, cfg.Device);
-        Console.WriteLine($"등록: {r}");
-        if (grantAll)
-        {
-            var granted = JsonSerializer.Serialize(m.Capabilities.Select(c => c.Id));
-            var row = await db.SetInstallAsync(m.Id, cfg.Device, m.Version, true, null, granted);
-            Console.WriteLine($"켬(권한 전부 허용): {row}");
-        }
-        else
-        {
-            Console.WriteLine($"설치됨. 권한을 허용하고 켜려면: enable {m.Id}");
-        }
+        var r = await PluginInstaller.InstallAsync(db, cfg.Device, Config.PluginsDir, src, grantAll, "collector");
+        Console.WriteLine($"등록: {r.Registered}");
+        Console.WriteLine(r.Install is { } inst ? $"켬(권한 전부 허용): {inst}" : $"설치됨. 권한을 허용하고 켜려면: enable {r.Manifest.Id}");
+        if (Reload()) Console.WriteLine("실행 중인 수집기에 다시 읽기를 요청했습니다");
         return 0;
     }
 
@@ -155,14 +133,25 @@ static class Cli
         var cfg = Config.Load() ?? throw new InvalidOperationException("setup을 먼저 하세요");
         using var single = new Mutex(true, MutexName, out var first);
         if (!first) { Console.Error.WriteLine("이미 실행 중입니다. `stop`으로 끝내세요."); return 3; }
-        using var cts = new CancellationTokenSource();
-        Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+        using var stop = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
         using var stopEvent = new EventWaitHandle(false, EventResetMode.ManualReset, StopEventName);
-        ThreadPool.RegisterWaitForSingleObject(stopEvent, (_, _) => cts.Cancel(), null, -1, true);
-        await using var host = new Host(cfg);
-        using var trayIcon = tray ? new Tray(() => host.Status, () => cts.Cancel()) : null;
+        using var reloadEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ReloadEventName);
+        ThreadPool.RegisterWaitForSingleObject(stopEvent, (_, _) => stop.Cancel(), null, -1, true);
+        var status = "시작 중";
+        using var trayIcon = tray ? new Tray(() => status, () => stop.Cancel()) : null;
         trayIcon?.Start();
-        await host.RunAsync(cts.Token);
+        // reload 신호(install·대시보드)가 오면 호스트만 새로 만든다. 뮤텍스·트레이는 유지.
+        while (!stop.IsCancellationRequested)
+        {
+            using var round = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
+            var reloadWait = ThreadPool.RegisterWaitForSingleObject(reloadEvent, (_, _) => round.Cancel(), null, -1, true);
+            await using var host = new Host(cfg);
+            using var statusTimer = new System.Threading.Timer(_ => status = host.Status, null, 0, 1000);
+            await host.RunAsync(round.Token);
+            reloadWait.Unregister(null);
+            if (!stop.IsCancellationRequested) { Console.WriteLine("플러그인 다시 읽기"); cfg = Config.Load() ?? cfg; }
+        }
         return 0;
     }
 
@@ -173,6 +162,14 @@ static class Cli
         cfg.Save();
         Console.WriteLine(string.IsNullOrEmpty(tenant) ? "테넌트 접미사 없음" : $"접속 사용자: {cfg.User}");
         return 0;
+    }
+
+    /// <summary>실행 중인 수집기에 플러그인 다시 읽기를 요청한다. 없으면 false.</summary>
+    static bool Reload()
+    {
+        if (!EventWaitHandle.TryOpenExisting(ReloadEventName, out var ev)) return false;
+        using (ev) ev.Set();
+        return true;
     }
 
     static int Stop()

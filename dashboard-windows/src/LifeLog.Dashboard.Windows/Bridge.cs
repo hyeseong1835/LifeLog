@@ -1,4 +1,5 @@
 using System.IO;
+using System.Threading;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using LifeLog.Core;
@@ -72,7 +73,10 @@ public sealed class Bridge
                 "renderers" => await RenderersAsync(),
                 "settings" => LoadSettings(),
                 "setSettings" => SetSettings(args),
-                "installPlugin" => await InstallPluginAsync(),
+                "installPlugin" => await InstallPluginAsync(args),
+                "registry" => await _db.ListRegistryAsync(),
+                "setEnabled" => await SetEnabledAsync(args),
+                "reloadCollector" => ReloadCollector(),
                 "device" => _cfg.Device,
                 _ => throw new InvalidOperationException("모르는 메서드: " + method),
             };
@@ -142,32 +146,52 @@ public sealed class Bridge
         return LoadSettings();
     }
 
-    private async Task<object> InstallPluginAsync()
+    public static string CollectorPluginsDir => Path.Combine(Config.Root, "collector", "plugins");
+
+    /// <summary>args[0]이 출처(GitHub URL·폴더·zip)면 그대로, 없으면 폴더 대화상자. 종류에 따라 수집기 plugins/ 또는 대시보드 plugins/에 넣는다.</summary>
+    private async Task<object> InstallPluginAsync(JsonElement args)
     {
-        string? folder = null;
-        _owner.Dispatcher.Invoke(() =>
+        string? source = args.ValueKind == JsonValueKind.Array && args.GetArrayLength() > 0 && args[0].ValueKind == JsonValueKind.String ? args[0].GetString() : null;
+        if (string.IsNullOrWhiteSpace(source))
         {
-            var dlg = new OpenFolderDialog { Title = "렌더러 플러그인 폴더(manifest.json이 있는 곳)" };
-            if (dlg.ShowDialog(_owner) == true) folder = dlg.FolderName;
-        });
-        if (folder is null) return new { installed = false };
-        var m = Manifest.Load(Path.Combine(folder, "manifest.json"));
-        if (m.Type != "renderer") throw new InvalidOperationException("렌더러 매니페스트가 아닙니다");
-        var dest = Path.Combine(PluginsDir, m.Id);
-        if (Directory.Exists(dest)) Directory.Delete(dest, true);
-        Directory.CreateDirectory(dest);
-        foreach (var f in Directory.GetFiles(folder, "*", SearchOption.AllDirectories))
-        {
-            var target = Path.Combine(dest, Path.GetRelativePath(folder, f));
-            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            File.Copy(f, target, true);
+            source = null;
+            _owner.Dispatcher.Invoke(() =>
+            {
+                var dlg = new OpenFolderDialog { Title = "플러그인 폴더(manifest.json이 있는 곳)" };
+                if (dlg.ShowDialog(_owner) == true) source = dlg.FolderName;
+            });
+            if (source is null) return new { installed = false };
         }
-        await _db.RegisterPluginAsync(m, _cfg.Device);
+        var src = await PluginInstaller.FetchAsync(source);
+        var m = Manifest.Load(Path.Combine(src, "manifest.json"));
+        var dir = m.Type == "renderer" ? PluginsDir : CollectorPluginsDir;
         // 지금은 권한 전부 허용하고 켠다. 항목별 허용 화면은 뒤로.
-        var granted = JsonSerializer.Serialize(m.Capabilities.Select(c => c.Id));
-        await _db.SetInstallAsync(m.Id, _cfg.Device, m.Version, true, null, granted);
-        await MapPluginsAsync();
-        return new { installed = true, id = m.Id };
+        var r = await PluginInstaller.InstallAsync(_db, _cfg.Device, dir, source, grantAll: true);
+        var reloaded = false;
+        if (m.Type == "renderer") await MapPluginsAsync(); else reloaded = ReloadCollector();
+        return new { installed = true, id = r.Manifest.Id, type = m.Type, reloaded };
+    }
+
+    /// <summary>이 기기에서 켜고 끄기. 켤 때는 권한 전부 허용(매니페스트가 로컬에 있으면 그것, 없으면 기존 granted).</summary>
+    private async Task<object> SetEnabledAsync(JsonElement args)
+    {
+        var id = args[0].GetString()!;
+        var on = args[1].GetBoolean();
+        var inst = await _db.GetInstallAsync(id, _cfg.Device) ?? throw new InvalidOperationException("이 기기에 설치되지 않은 플러그인입니다");
+        string? mf = new[] { Path.Combine(CollectorPluginsDir, id, "manifest.json"), Path.Combine(PluginsDir, id, "manifest.json") }.FirstOrDefault(File.Exists);
+        var m = mf is null ? null : Manifest.Load(mf);
+        var granted = on && m is not null ? JsonSerializer.Serialize(m.Capabilities.Select(c => c.Id)) : JsonSerializer.Serialize(inst.Granted);
+        var row = await _db.SetInstallAsync(id, _cfg.Device, inst.InstalledVersion, on, inst.Settings.GetRawText(), granted);
+        var reloaded = m?.Type == "renderer" ? false : ReloadCollector();
+        if (m?.Type == "renderer") await MapPluginsAsync();
+        return new { row, reloaded };
+    }
+
+    private static bool ReloadCollector()
+    {
+        if (!EventWaitHandle.TryOpenExisting(@"Local\LifeLog.Collector.Reload", out var ev)) return false;
+        using (ev) ev.Set();
+        return true;
     }
 
     private static void Log(string s) => System.Diagnostics.Debug.WriteLine(s);

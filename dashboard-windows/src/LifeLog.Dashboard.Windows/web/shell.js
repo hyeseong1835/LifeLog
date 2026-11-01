@@ -102,7 +102,6 @@ $("#prev").onclick = () => { dayOffset--; load(); };
 $("#next").onclick = () => { dayOffset++; load(); };
 $("#today").onclick = () => { dayOffset = 0; load(); };
 $("#reload").onclick = init;
-$("#install").onclick = async () => { const r = await lifelog.installPlugin(); if (r.installed) init(); };
 window.addEventListener("message", e => {
   const d = e.data;
   if (d && d.lifelog === "navigate" && d.range) { /* 플러그인의 이동 요청은 아직 날짜 단위만 */ }

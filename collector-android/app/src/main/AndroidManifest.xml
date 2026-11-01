@@ -38,7 +38,8 @@
     <application
         android:label="LifeLog 수집기"
         android:icon="@android:drawable/ic_menu_recent_history"
-        android:theme="@android:style/Theme.Material.NoActionBar">
+        android:theme="@android:style/Theme.Material.NoActionBar"
+        android:pageSizeCompat="enabled">
 
         <activity android:name=".ui.MainActivity" android:exported="true">
             <intent-filter>

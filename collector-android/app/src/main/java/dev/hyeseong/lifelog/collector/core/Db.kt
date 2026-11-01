@@ -13,7 +13,7 @@ import java.util.UUID
 class Db(private val cfg: Config) : AutoCloseable {
     companion object {
         /** 이 앱이 아는 코어 스키마 버전. DB가 더 높으면 쓰기를 멈춘다. */
-        const val KNOWN_SCHEMA_VERSION = 5
+        const val KNOWN_SCHEMA_VERSION = 6
         init { Class.forName("org.postgresql.Driver") }
     }
 
@@ -66,6 +66,9 @@ class Db(private val cfg: Config) : AutoCloseable {
             ps.setString(6, grantedJson)
             ps.executeQuery().use { r -> r.next(); JSONObject(r.getString(1)) }
         }
+
+    /** plugins.source_url(0006). URL로 설치했을 때 적는다. */
+    fun setPluginSource(plugin: String, url: String) = connection().prepareStatement("SELECT lifelog.set_plugin_source(?, ?)").use { ps -> ps.setString(1, plugin); ps.setString(2, url); ps.executeQuery().close() }
 
     fun touchLastSeen(device: String) = connection().prepareStatement("UPDATE lifelog.devices SET last_seen = now() WHERE id = ?").use { ps -> ps.setString(1, device); ps.executeUpdate() }
 

@@ -8,7 +8,7 @@ namespace LifeLog.Core;
 public sealed class Db : IAsyncDisposable
 {
     /// <summary>이 앱이 아는 코어 스키마 버전. DB가 더 높으면 쓰기를 멈춘다(Documents/등록 함수.md 4절).</summary>
-    public const int KnownSchemaVersion = 5;
+    public const int KnownSchemaVersion = 6;
 
     private readonly NpgsqlDataSource _ds;
     public TimeSpan ClockOffset { get; private set; }   // DB now() - 로컬 now
@@ -135,6 +135,31 @@ public sealed class Db : IAsyncDisposable
     {
         public string Table => $"{Plugin}/{Output}@{SchemaVersion}";
         public string View => $"{Plugin}/{Output}";
+    }
+
+    /// <summary>plugins.source_url(0006). URL로 설치했을 때 적는다.</summary>
+    public async Task SetPluginSourceAsync(string plugin, string url, CancellationToken ct = default)
+    {
+        await using var cmd = _ds.CreateCommand("SELECT lifelog.set_plugin_source($1, $2)");
+        cmd.Parameters.Add(new NpgsqlParameter { Value = plugin });
+        cmd.Parameters.Add(new NpgsqlParameter { Value = url });
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>등록부 전체: 기기, 플러그인(최신 버전·이름·출처·기기별 설치·테이블). 대시보드 플러그인 페이지용.</summary>
+    public async Task<JsonElement> ListRegistryAsync(CancellationToken ct = default)
+    {
+        const string sql = @"SELECT json_build_object(
+  'devices', (SELECT COALESCE(json_agg(json_build_object('id', id, 'name', name, 'platform', platform, 'last_seen', last_seen, 'revoked', revoked_at IS NOT NULL) ORDER BY id), '[]'::json) FROM lifelog.devices),
+  'plugins', (SELECT COALESCE(json_agg(json_build_object(
+      'id', p.id, 'type', p.type, 'latest_version', p.latest_version, 'source_url', p.source_url,
+      'name', (SELECT v.manifest->>'name' FROM lifelog.plugin_versions v WHERE v.plugin_id = p.id AND v.version = p.latest_version),
+      'installs', (SELECT COALESCE(json_agg(json_build_object('device', i.device, 'version', i.installed_version, 'enabled', i.enabled, 'granted', i.granted, 'unmet', i.unmet, 'last_seen', i.last_seen) ORDER BY i.device), '[]'::json) FROM lifelog.plugin_installs i WHERE i.plugin_id = p.id),
+      'tables', (SELECT COALESCE(json_agg(t.table_name ORDER BY t.table_name), '[]'::json) FROM lifelog.collector_tables t WHERE t.plugin_id = p.id)
+    ) ORDER BY p.id), '[]'::json) FROM lifelog.plugins p))::text";
+        await using var cmd = _ds.CreateCommand(sql);
+        var json = (string)(await cmd.ExecuteScalarAsync(ct))!;
+        return JsonDocument.Parse(json).RootElement.Clone();
     }
 
     public async Task TouchLastSeenAsync(string device, CancellationToken ct = default)
