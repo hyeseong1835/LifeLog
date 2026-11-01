@@ -56,10 +56,13 @@ lifelog.ready(async (range, widget) => {
     parts.sort((x, y) => y.ms - x.ms);
     let b = a, i = 0;
     for (const p of parts) {
-      const items = p.name === null ? [...p.apps.entries()].map(([k, ms]) => ({ name: k, ms })).sort((x, y) => y.ms - x.ms) : [p];
+      const items = p.name === null ? [...p.apps.entries()].map(([k, ms]) => ({ name: k, ms, app: true })).sort((x, y) => y.ms - x.ms) : [p];
       for (const it of items) {
         const sp = it.ms / total * Math.PI * 2, b1 = b + sp;
-        svg += `<path d="${arc(cx, cy, r2 + 2, R, b, b1)}" fill="${shade(color, (i % 2 ? 10 : -6))}" stroke="#0006" stroke-width="1"><title>${S.esc(n.name)} › ${S.esc(it.name)}  ${S.fmtDur(it.ms)}</title></path>`;
+        // 하위 분류에 설정된 색이 있으면 그 색, 없으면(부모 색 상속·앱 조각) 부모 색을 밝기만 바꿔 번갈아
+        const own = !it.app && mode !== "app" ? S.categoryColor(n.path + "/" + it.name) : null;
+        const fill = own && own !== color ? own : shade(color, (i % 2 ? 10 : -6));
+        svg += `<path d="${arc(cx, cy, r2 + 2, R, b, b1)}" fill="${fill}" stroke="#0006" stroke-width="1"><title>${S.esc(n.name)} › ${S.esc(it.name)}  ${S.fmtDur(it.ms)}</title></path>`;
         if (sp > 0.12) { const [tx, ty] = polar(cx, cy, (r2 + R) / 2 + 1, (b + b1) / 2); const deg = ((b + b1) / 2) * 180 / Math.PI; svg += `<text class="lbl" x="${tx}" y="${ty}" text-anchor="middle" transform="rotate(${deg > 90 || deg < -90 ? deg + 180 : deg} ${tx} ${ty})">${S.esc(it.name.length > 14 ? it.name.slice(0, 13) + "…" : it.name)}</text>`; }
         b = b1; i++;
       }
