@@ -1,9 +1,9 @@
-// 셸: 날짜 이동, 뷰 탭, 위젯 격자(고정 픽셀 단위 그리드. 창 크기가 바뀌어도 위젯 크기는 그대로, 줄바꿈만 달라짐),
-// 편집 모드(추가·삭제·순서·그리드 단위로 끌어서 크기), 설정(테마·하루 시작·그리드 단위·분류 규칙). 설정·뷰는 기기별(Documents/대시보드 뷰·위젯.md).
+// 셸: 날짜 이동, 뷰 탭, 위젯 보드(칸 좌표 x·y와 크기 w·h. 위치가 고정이라 창 크기가 바뀌어도 위젯이 움직이지 않고 스크롤만 생긴다),
+// 편집 모드(추가·삭제·머리띠를 끌어 이동·손잡이로 크기, 칸 단위 스냅), 설정(테마·하루 시작·칸 크기·분류 규칙). 설정·뷰는 기기별(Documents/대시보드 뷰·위젯.md).
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const params = new URLSearchParams(location.search);
-let settings = { day_start: "04:00", tz: "", theme: "system", grid: { col: 280, row: 120, gap: 10 }, views: [], categories: [], phone_categories: [] };
+let settings = { day_start: "04:00", tz: "", theme: "system", grid: { cell: 60, gap: 10 }, views: [], categories: [], phone_categories: [] };
 let dayOffset = Number(params.get("offset")) || 0;   // 0 = 오늘(지금이 속한 하루). ?offset=-1은 개발용
 let outputs = [];
 let renderers = [];
@@ -12,17 +12,17 @@ let viewId = null;
 let editing = params.get("edit") === "1";            // ?edit=1은 개발용
 let range = null;
 
-const DEFAULT_VIEWS = [
-  { id: "default", name: "기본", widgets: [
-    { id: "w1", type: "builtin:timeline", w: 4, h: 3 },
-    { id: "w2", type: "widget-summary", w: 1, h: 2, settings: {} },
-    { id: "w3", type: "widget-top-apps", w: 1, h: 2, settings: {} },
-    { id: "w4", type: "widget-categories", w: 1, h: 2, settings: {} },
-    { id: "w5", type: "widget-hourly", w: 2, h: 2, settings: {} },
-    { id: "w6", type: "widget-media", w: 1, h: 2, settings: {} },
-    { id: "w7", type: "widget-location", w: 1, h: 2, settings: {} },
-  ] },
+const DEFAULT_WIDGETS = [
+  { type: "builtin:timeline", x: 0, y: 0, w: 20, h: 5 },
+  { type: "widget-summary", x: 0, y: 5, w: 5, h: 5 },
+  { type: "widget-top-apps", x: 5, y: 5, w: 5, h: 5 },
+  { type: "widget-categories", x: 10, y: 5, w: 5, h: 5 },
+  { type: "widget-media", x: 15, y: 5, w: 5, h: 5 },
+  { type: "widget-hourly", x: 0, y: 10, w: 5, h: 5 },
+  { type: "widget-location", x: 5, y: 10, w: 5, h: 5 },
 ];
+const defaultWidgets = () => DEFAULT_WIDGETS.map(w => Object.assign({ id: uid(), settings: {} }, w));
+const DEFAULT_VIEWS = [{ id: "default", name: "기본", widgets: DEFAULT_WIDGETS.map((w, i) => Object.assign({ id: "w" + (i + 1), settings: {} }, w)) }];
 
 function dayRange(offset) {
   const [h, m] = settings.day_start.split(":").map(Number);
@@ -97,38 +97,50 @@ async function renderTimeline(el, { start, end }) {
   if (outputs.length === 0) el.innerHTML = '<div class="empty">등록된 수집기가 없습니다.</div>';
 }
 
-// ---- 위젯 격자 ----
+// ---- 위젯 보드 ----
 function gridUnits() {
   const g = settings.grid || {};
-  return { col: Math.max(120, Number(g.col) || 280), row: Math.max(60, Number(g.row) || 120), gap: Math.max(0, Number(g.gap ?? 10)) };
+  return { cell: Math.max(20, Number(g.cell) || 60), gap: Math.max(0, Number(g.gap ?? 10)) };
 }
+const px = (n, u) => n * (u.cell + u.gap);                       // 칸 좌표 → px(왼쪽 위)
+const size = (n, u) => n * u.cell + Math.max(0, n - 1) * u.gap;   // 칸 수 → px(크기)
 function widgetTitle(w) {
   if (w.type === "builtin:timeline") return "타임라인";
   const p = renderers.find(r => r.id === w.type);
   return p ? p.name : w.type;
 }
-function applySize(card, w) {
-  card.style.gridColumn = `span ${Math.max(1, w.w || 1)}`;
-  card.style.gridRow = `span ${Math.max(1, w.h || 1)}`;
+function applyRect(card, w, u) {
+  card.style.left = px(w.x || 0, u) + "px"; card.style.top = px(w.y || 0, u) + "px";
+  card.style.width = size(Math.max(1, w.w || 1), u) + "px"; card.style.height = size(Math.max(1, w.h || 1), u) + "px";
+}
+function fitBoard(board, view, u) {
+  let mx = 20, my = 6;
+  for (const w of view.widgets) { mx = Math.max(mx, (w.x || 0) + (w.w || 1)); my = Math.max(my, (w.y || 0) + (w.h || 1)); }
+  board.style.width = px(mx + 1, u) + "px"; board.style.height = px(my + 1, u) + "px";
+}
+/** 설정 파일에 x·y가 없는(옛 형식) 뷰는 기본 배치로 되돌린다. */
+function migrateView(view) {
+  if (view.widgets.every(w => Number.isInteger(w.x) && Number.isInteger(w.y))) return false;
+  const old = view.widgets;
+  view.widgets = defaultWidgets().map(w => { const o = old.find(x => x.type === w.type); if (o && o.settings) w.settings = o.settings; return w; });
+  return true;
 }
 
-/** 편집 모드: 오른쪽 아래 손잡이를 끌면 그리드 단위로 너비·높이가 바뀐다. 놓으면 저장한다(다시 그리지 않는다). */
-function attachResize(card, w) {
+/** 편집 모드: 머리띠를 끌면 이동, 오른쪽 아래 손잡이를 끌면 크기. 칸 단위로 스냅하고 놓으면 저장한다(다시 그리지 않는다). */
+function attachEdit(card, head, w, view) {
   const handle = document.createElement("div"); handle.className = "handle"; handle.title = "끌어서 크기 조절";
   card.appendChild(handle);
-  handle.addEventListener("mousedown", e => {
+  const drag = (e, apply) => {
     e.preventDefault();
-    const u = gridUnits();
-    const start = { x: e.clientX, y: e.clientY, w: w.w || 1, h: w.h || 1 };
-    const move = ev => {
-      const nw = Math.max(1, Math.round(start.w + (ev.clientX - start.x) / (u.col + u.gap)));
-      const nh = Math.max(1, Math.round(start.h + (ev.clientY - start.y) / (u.row + u.gap)));
-      if (nw !== w.w || nh !== w.h) { w.w = nw; w.h = nh; applySize(card, w); }
-    };
-    const up = async () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); card.classList.remove("resizing"); await saveSettings(); };
+    const u = gridUnits(), start = { x: e.clientX, y: e.clientY, wx: w.x || 0, wy: w.y || 0, ww: w.w || 1, wh: w.h || 1 };
+    const move = ev => { const dx = Math.round((ev.clientX - start.x) / (u.cell + u.gap)), dy = Math.round((ev.clientY - start.y) / (u.cell + u.gap)); apply(start, dx, dy); applyRect(card, w, u); };
+    const up = async () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); card.classList.remove("resizing"); fitBoard(card.parentElement, view, u); await saveSettings(); };
     card.classList.add("resizing");
     window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
-  });
+  };
+  handle.addEventListener("mousedown", e => drag(e, (st, dx, dy) => { w.w = Math.max(1, st.ww + dx); w.h = Math.max(1, st.wh + dy); }));
+  head.addEventListener("mousedown", e => { if (e.target.closest("button")) return; drag(e, (st, dx, dy) => { w.x = Math.max(0, st.wx + dx); w.y = Math.max(0, st.wy + dy); }); });
+  head.classList.add("movable");
 }
 
 async function load() {
@@ -140,21 +152,18 @@ async function load() {
   const view = currentView();
   if (!view) { main.innerHTML = '<div class="empty">뷰가 없습니다. 편집에서 뷰를 추가하세요.</div>'; return; }
   const u = gridUnits();
-  const grid = document.createElement("div"); grid.className = "grid";
-  grid.style.gridTemplateColumns = `repeat(auto-fill, ${u.col}px)`;
-  grid.style.gridAutoRows = `${u.row}px`;
-  grid.style.gap = `${u.gap}px`;
+  const grid = document.createElement("div"); grid.className = "board";
+  fitBoard(grid, view, u);
   view.widgets.forEach((w, i) => {
-    const card = document.createElement("section"); card.className = "widget"; applySize(card, w);
+    const card = document.createElement("section"); card.className = "widget"; applyRect(card, w, u);
     const head = document.createElement("div"); head.className = "whead";
     head.innerHTML = `<span class="wtitle">${esc(widgetTitle(w))}</span>` + (editing ? `<span class="wtools">
-        <button data-act="left" title="앞으로">◀</button><button data-act="right" title="뒤로">▶</button>
         ${w.type.startsWith("builtin:") ? "" : '<button data-act="settings" title="설정">⚙</button>'}
         <button data-act="remove" title="지우기">✕</button></span>` : "");
     head.querySelectorAll("[data-act]").forEach(b => b.onclick = () => widgetAction(view, i, b.dataset.act));
     const body = document.createElement("div"); body.className = "wbody";
     card.append(head, body); grid.appendChild(card);
-    if (editing) attachResize(card, w);
+    if (editing) attachEdit(card, head, w, view);
     if (w.type === "builtin:timeline") { body.classList.add("timeline"); renderTimeline(body, { start, end }); return; }
     const p = renderers.find(r => r.id === w.type);
     if (!p) { body.innerHTML = `<div class="empty">설치되지 않은 위젯: ${esc(w.type)}</div>`; return; }
@@ -176,12 +185,13 @@ async function load() {
     main.appendChild(add);
     add.querySelector("#addWidget").onclick = async () => {
       const type = add.querySelector("#addType").value;
-      view.widgets.push({ id: uid(), type, w: type === "builtin:timeline" ? 4 : 1, h: type === "builtin:timeline" ? 3 : 2, settings: {} });
+      const bottom = view.widgets.reduce((m, x) => Math.max(m, (x.y || 0) + (x.h || 1)), 0);   // 맨 아래 빈 줄에
+      view.widgets.push({ id: uid(), type, x: 0, y: bottom, w: type === "builtin:timeline" ? 20 : 5, h: 5, settings: {} });
       await saveSettings(); load();
     };
     add.querySelector("#resetView").onclick = async () => {
       if (!confirm(`뷰 "${view.name}"의 위젯을 기본 구성으로 되돌릴까요?`)) return;
-      view.widgets = JSON.parse(JSON.stringify(DEFAULT_VIEWS[0].widgets)).map(w => Object.assign(w, { id: uid() }));
+      view.widgets = defaultWidgets();
       await saveSettings(); load();
     };
     add.querySelector("#renameView").onclick = async () => { const n = prompt("뷰 이름", view.name); if (n) { view.name = n; await saveSettings(); load(); } };
@@ -263,8 +273,7 @@ function renderSettingsPage() {
     <div class="row">
       <label>테마 <select id="theme"><option value="system" ${settings.theme === "system" || !settings.theme ? "selected" : ""}>시스템 따름</option><option value="dark" ${settings.theme === "dark" ? "selected" : ""}>다크</option><option value="light" ${settings.theme === "light" ? "selected" : ""}>라이트</option></select></label>
       <label>하루 시작 <input id="dayStart" value="${esc(settings.day_start)}" size="6"></label>
-      <label>그리드 한 칸 너비(px) <input id="gridCol" type="number" value="${u.col}" size="5"></label>
-      <label>높이(px) <input id="gridRow" type="number" value="${u.row}" size="5"></label>
+      <label>한 칸 크기(px) <input id="gridCell" type="number" value="${u.cell}" size="5"></label>
       <label>간격(px) <input id="gridGap" type="number" value="${u.gap}" size="4"></label>
     </div>
     <h3>컴퓨터 분류 규칙 <span class="mute">위에서부터 처음 맞는 규칙. 정규식, 대소문자 무시. 이름은 "개발/코딩"처럼 /로 계층</span></h3>
@@ -283,7 +292,7 @@ function renderSettingsPage() {
     collect();
     settings.theme = $("#theme").value;
     settings.day_start = $("#dayStart").value.trim() || "04:00";
-    settings.grid = { col: Number($("#gridCol").value) || 280, row: Number($("#gridRow").value) || 120, gap: Number($("#gridGap").value) || 0 };
+    settings.grid = { cell: Number($("#gridCell").value) || 60, gap: Number($("#gridGap").value) || 0 };
     settings.categories = pc.filter(r => r.name);
     settings.phone_categories = ph.filter(r => r.name);
     await saveSettings(); applyTheme(); $("#ruleMsg").textContent = "저장됨"; load();
@@ -296,6 +305,8 @@ async function init() {
     if (!Array.isArray(settings.views) || settings.views.length === 0) { settings.views = JSON.parse(JSON.stringify(DEFAULT_VIEWS)); await saveSettings(); }
     if (!Array.isArray(settings.categories)) settings.categories = [];
     if (!Array.isArray(settings.phone_categories)) settings.phone_categories = [];
+    if (settings.views.map(migrateView).some(Boolean)) await saveSettings();
+    if (!settings.grid || !settings.grid.cell) { settings.grid = { cell: 60, gap: 10 }; await saveSettings(); }
     applyTheme();
     if (!viewId) viewId = settings.views[0].id;
     outputs = await lifelog.outputs();

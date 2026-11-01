@@ -24,9 +24,10 @@
   .tab.on { background:var(--on); border-color:var(--accent); }
   .tab.add { color:var(--mute); }
   main { padding: 10px 12px 40px 12px; overflow-x: auto; }
-  /* 고정 픽셀 단위 그리드: 창 너비가 바뀌어도 위젯 크기는 그대로, 한 줄에 들어가는 개수만 바뀐다 */
-  .grid { display:grid; grid-auto-flow: row dense; justify-content: start; }
-  .widget { position:relative; background:var(--card); border:1px solid var(--line); border-radius:8px; display:flex; flex-direction:column; overflow:hidden; min-width:0; min-height:0; }
+  /* 보드: 위젯은 칸 좌표로 절대 배치. 창이 좁아져도 위치는 그대로이고 스크롤만 생긴다 */
+  .board { position:relative; }
+  .widget { position:absolute; background:var(--card); border:1px solid var(--line); border-radius:8px; display:flex; flex-direction:column; overflow:hidden; min-width:0; min-height:0; }
+  .whead.movable { cursor:move; user-select:none; }
   .widget.resizing { outline: 2px solid var(--accent); }
   .whead { display:flex; align-items:center; justify-content:space-between; padding:6px 10px; border-bottom:1px solid var(--line); color:var(--mute); font-size:12px; flex:none; }
   .wtools button { padding:1px 6px; margin-left:2px; font-size:11px; }
