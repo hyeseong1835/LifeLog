@@ -81,7 +81,7 @@ class CollectorService : Service() {
         db = Db(cfg)
         val ver = db.schemaVersion()
         if (ver > Db.KNOWN_SCHEMA_VERSION) throw IllegalStateException("DB 코어 스키마($ver)가 이 앱(${Db.KNOWN_SCHEMA_VERSION})보다 높습니다. 앱을 갱신하세요")
-        if (ver < Db.KNOWN_SCHEMA_VERSION) throw IllegalStateException("DB 코어 스키마가 $ver 입니다. 마이그레이션을 먼저 적용하세요")
+        if (ver < Db.MIN_SCHEMA_VERSION) throw IllegalStateException("DB 코어 스키마가 $ver 입니다. 마이그레이션을 먼저 적용하세요")
         db.syncClock()
         db.touchLastSeen(cfg.device)
         queue = Queue(Config.queuePath(this))

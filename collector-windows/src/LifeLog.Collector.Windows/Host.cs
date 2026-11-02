@@ -51,7 +51,7 @@ public sealed class Host : IAsyncDisposable
         var ver = await Db.SchemaVersionAsync();
         if (ver > Db.KnownSchemaVersion)
             throw new InvalidOperationException($"DB 코어 스키마가 {ver}로 이 앱({Db.KnownSchemaVersion})보다 높습니다. 앱을 갱신하세요. 쓰기를 하지 않습니다.");
-        if (ver < Db.KnownSchemaVersion)
+        if (ver < Db.MinSchemaVersion)
             throw new InvalidOperationException($"DB 코어 스키마가 {ver}입니다. 마이그레이션을 먼저 적용하세요(tools/db/migrate.py).");
         await Db.SyncClockAsync();
         Log($"DB 연결. 시계 보정 {Db.ClockOffset.TotalMilliseconds:F0}ms, 큐 대기 {Queue.Count()}건");

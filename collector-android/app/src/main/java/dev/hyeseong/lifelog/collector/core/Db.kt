@@ -14,6 +14,8 @@ class Db(private val cfg: Config) : AutoCloseable {
     companion object {
         /** 이 앱이 아는 코어 스키마 버전. DB가 더 높으면 쓰기를 멈춘다. */
         const val KNOWN_SCHEMA_VERSION = 7
+        /** 수집기가 돌 수 있는 가장 낮은 코어 스키마. 0007(공유 규칙·platforms)은 없어도 수집은 된다 */
+        const val MIN_SCHEMA_VERSION = 6
         /** 0007부터: 공유 분류 규칙, 매니페스트 platforms·requires */
         const val RULES_SCHEMA_VERSION = 7
         init { Class.forName("org.postgresql.Driver") }

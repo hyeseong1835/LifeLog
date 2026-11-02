@@ -10,6 +10,9 @@ public sealed class Db : IAsyncDisposable
     /// <summary>이 앱이 아는 코어 스키마 버전. DB가 더 높으면 쓰기를 멈춘다(Documents/등록 함수.md 4절).</summary>
     public const int KnownSchemaVersion = 7;
 
+    /// <summary>수집기가 돌 수 있는 가장 낮은 코어 스키마. 0007(공유 규칙·platforms)은 없어도 수집은 된다.</summary>
+    public const int MinSchemaVersion = 6;
+
     /// <summary>0007부터: 공유 분류 규칙 테이블, 매니페스트 platforms·requires.</summary>
     public const int RulesSchemaVersion = 7;
     private int? _schema;
