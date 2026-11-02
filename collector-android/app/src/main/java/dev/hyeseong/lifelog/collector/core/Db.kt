@@ -130,6 +130,12 @@ class Db(private val cfg: Config) : AutoCloseable {
         ps.setString(1, kind); ps.setString(2, rulesJson); ps.executeQuery().close()
     }
 
+    /** 정각에 맞지 않는 시간별 걸음 행(옛 HealthSource 버그로 겹쳐 쌓인 것)을 지운다. 지운 행 수. */
+    fun deleteMisalignedHourlySteps(device: String): Int = connection().prepareStatement(
+        "DELETE FROM lifelog.\"health/span@1\" WHERE device = ? AND metric = 'steps' AND category = 'hourly' AND date_trunc('hour', start) <> start").use { ps ->
+        ps.setString(1, device); ps.executeUpdate()
+    }
+
     fun touchLastSeen(device: String) = connection().prepareStatement("UPDATE lifelog.devices SET last_seen = now() WHERE id = ?").use { ps -> ps.setString(1, device); ps.executeUpdate() }
 
     fun stateGet(plugin: String, device: String, key: String): String? = connection().prepareStatement(

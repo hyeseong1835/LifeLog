@@ -82,6 +82,10 @@ class CollectorService : Service() {
         val ver = db.schemaVersion()
         if (ver > Db.KNOWN_SCHEMA_VERSION) throw IllegalStateException("DB 코어 스키마($ver)가 이 앱(${Db.KNOWN_SCHEMA_VERSION})보다 높습니다. 앱을 갱신하세요")
         if (ver < Db.MIN_SCHEMA_VERSION) throw IllegalStateException("DB 코어 스키마가 $ver 입니다. 마이그레이션을 먼저 적용하세요")
+        if (!cfg.done("steps_hourly_v1")) {   // 2026-11-03: 겹쳐 쌓인 시간별 걸음 행 정리(health 플러그인이 30일을 다시 읽는다)
+            try { log(this, "시간별 걸음 정리: ${db.deleteMisalignedHourlySteps(cfg.device)}행 지움"); cfg.markDone("steps_hourly_v1") }
+            catch (e: Exception) { log(this, "시간별 걸음 정리 실패: ${e.message}") }
+        }
         db.syncClock()
         db.touchLastSeen(cfg.device)
         queue = Queue(Config.queuePath(this))

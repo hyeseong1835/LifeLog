@@ -95,7 +95,17 @@
   dialog { background:var(--card); color:var(--fg); border:1px solid var(--btn-border); border-radius:10px; min-width:340px; }
   dialog::backdrop { background:rgba(0,0,0,.5); }
   dialog label { display:flex; justify-content:space-between; gap:12px; margin:8px 0; align-items:flex-start; }
-  dialog .checks { display:flex; flex-direction:column; gap:4px; }
+  dialog .checks { display:flex; flex-direction:column; gap:4px; max-height:40vh; overflow:auto; }
+  dialog input:not([type]) { min-width:280px; }
+  dialog .stops { display:flex; flex-direction:column; gap:4px; min-width:330px; }
+  dialog .stop { display:flex; align-items:center; gap:6px; }
+  dialog .stop .sh { width:64px; }
+  dialog .stop input[type="color"] { width:34px; height:24px; padding:1px 2px; }
+  dialog .stop .sa { width:90px; }
+  dialog .stop .sav { width:34px; text-align:right; }
+  dialog .stop .sx { padding:1px 6px; font-size:11px; }
+  dialog .stopbar { height:12px; border-radius:3px; background: repeating-conic-gradient(#8884 0% 25%, transparent 0% 50%) 0 0 / 8px 8px; overflow:hidden; }
+  dialog .stopprev { display:block; height:100%; }
   dialog .chk { display:flex; justify-content:flex-start; gap:6px; margin:0; }
   dialog .row { display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
   .plat { display:inline-block; padding:0 5px; margin:1px 2px 1px 0; border-radius:8px; font-size:11px; border:1px solid var(--btn-border); color:var(--mute); }

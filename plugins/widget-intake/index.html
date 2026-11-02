@@ -46,7 +46,7 @@ lifelog.ready(async (range, widget) => {
   let rows;
   try { rows = own(await q("health/span", { range, where: { metric: ["water", "water_goal", "nutrition", "nutrition_kcal", "nutrition_goal"] }, limit: 1000 }), st); }
   catch (e) { return msg("읽기 실패: " + e.message); }
-  const water = S.latest(rows, "water", "daily"), kcal = S.latest(rows, "nutrition_kcal", "daily"), wg = S.latest(rows, "water_goal"), kg = S.latest(rows, "nutrition_goal");
+  const water = S.dayRow(rows, "water", range), kcal = S.dayRow(rows, "nutrition_kcal", range), wg = S.dayRow(rows, "water_goal", range, "goal"), kg = S.dayRow(rows, "nutrition_goal", range, "goal");
   const meals = rows.filter(r => r.metric === "nutrition").sort((a, b) => S.ms(a.start) - S.ms(b.start));
   if (!water && !kcal && !meals.length) return msg("섭취 기록 없음", "삼성 헬스에서 물·음식을 기록하면 보입니다.");
   const tile = (k, v, u, g, col) => `<div class="tile"><div class="k">${k}</div><div class="v">${v != null ? num(v) : "–"}<small>${u}</small></div>` + (g ? `<div class="s">목표 ${num(g)}${u}</div><div class="bar"><i style="width:${Math.min(100, (v || 0) / g * 100).toFixed(0)}%;background:${col}"></i></div>` : "") + "</div>";

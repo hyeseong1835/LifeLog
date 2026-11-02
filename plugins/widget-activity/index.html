@@ -46,8 +46,8 @@ lifelog.ready(async (range, widget) => {
   let rows;
   try { rows = own(await q("health/span", { range, where: { metric: ["active_time", "active_minutes", "active_kcal", "sh_active_kcal", "total_kcal", "sh_total_kcal", "distance", "sh_distance", "floors", "sh_floors", "active_time_goal", "active_kcal_goal"] }, limit: 2000 }), st); }
   catch (e) { return msg("읽기 실패: " + e.message); }
-  const v = (...ms) => { for (const m of ms) { const r = S.latest(rows, m, "daily") || S.latest(rows, m); if (r) return r.value; } return null; };
-  const goal = m => { const r = S.latest(rows, m, "goal"); return r ? r.value : null; };
+  const v = (...ms) => { for (const m of ms) { const r = S.dayRow(rows, m, range) || S.dayRow(rows, m, range, null); if (r) return r.value; } return null; };
+  const goal = m => { const r = S.dayRow(rows, m, range, "goal"); return r ? r.value : null; };
   const items = [
     ["활동 시간", v("active_time", "active_minutes"), "분", goal("active_time_goal"), x => num(x), "#4caf50"],
     ["활동 칼로리", v("active_kcal", "sh_active_kcal"), "kcal", goal("active_kcal_goal"), x => num(x), "#f06292"],

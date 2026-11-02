@@ -22,6 +22,9 @@ class Config(context: Context) {
     var ssl: Boolean get() = prefs.getBoolean("ssl", true); set(v) = prefs.edit().putBoolean("ssl", v).apply()
     /** 사용자가 마지막으로 수집 시작을 눌러 둔 상태. 부팅 뒤 자동 시작 여부 */
     var autostart: Boolean get() = prefs.getBoolean("autostart", false); set(v) = prefs.edit().putBoolean("autostart", v).apply()
+    /** 한 번만 하는 데이터 고침 표시(예: "steps_hourly_v1") */
+    fun done(key: String) = prefs.getBoolean("done_$key", false)
+    fun markDone(key: String) = prefs.edit().putBoolean("done_$key", true).apply()
     var password: String get() = prefs.getString("password", "") ?: ""; set(v) = prefs.edit().putString("password", v).apply()
 
     val user get() = "lifelog_device_$device" + if (tenant.isEmpty()) "" else ".$tenant"

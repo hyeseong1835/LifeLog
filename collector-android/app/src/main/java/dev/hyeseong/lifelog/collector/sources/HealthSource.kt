@@ -99,7 +99,8 @@ class HealthSource(private val context: Context) : ReadSource {
 
         if (metric in pointTypes) { pointsOf(metric, read(pointTypes.getValue(metric), range), out); return@runBlocking out.toString() }
         when (metric) {
-            "steps" -> client.aggregateGroupByDuration(AggregateGroupByDurationRequest(setOf(StepsRecord.COUNT_TOTAL), range, Duration.ofHours(1)))
+            // 시간별: 시작을 정각에 맞춘다. 맞추지 않으면 매번 다른 구간이 생겨 같은 시간이 겹쳐 쌓인다(2026-11-03 고침)
+            "steps" -> client.aggregateGroupByDuration(AggregateGroupByDurationRequest(setOf(StepsRecord.COUNT_TOTAL), TimeRangeFilter.between(from.truncatedTo(java.time.temporal.ChronoUnit.HOURS), to), Duration.ofHours(1)))
                 .forEach { b -> b.result[StepsRecord.COUNT_TOTAL]?.let { span(b.startTime, b.endTime, it.toDouble(), "count", "hourly") } }
             "steps_daily" -> daily(StepsRecord.COUNT_TOTAL, from, to) { b, v -> span(b.first, b.second, v.toDouble(), "count", "daily") }
             "distance_daily" -> daily(DistanceRecord.DISTANCE_TOTAL, from, to) { b, v -> span(b.first, b.second, v.inMeters, "m", "daily") }

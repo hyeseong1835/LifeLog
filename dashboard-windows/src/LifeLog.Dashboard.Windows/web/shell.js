@@ -255,6 +255,48 @@ const SHORT = { "플러그인": "🧩", "설정": "⚙", "타임라인": "↩", 
 const setLabel = (el, t) => { if (!el) return; el.textContent = mobile ? (SHORT[t] || t) : t; el.title = t; };
 const platformName = p => ({ windows: "Windows", android: "휴대폰", macos: "macOS", linux: "Linux", ios: "iOS" }[p] || p);
 
+// ---- 색 단계 편집기: list 설정 중 key가 colors인 것("시간:색" 목록). 단계마다 시간·색·투명도, 미리보기 띠 ----
+const cvx = document.createElement("canvas").getContext("2d");
+/** CSS 색 → { hex: "#rrggbb", a: 0~1 }. 모르면 null */
+function cssColor(str) {
+  const s = String(str || "").trim(); if (!s) return null;
+  if (s.toLowerCase() === "transparent") return { hex: "#000000", a: 0 };
+  const probe = v => { cvx.fillStyle = v; cvx.fillStyle = s; return cvx.fillStyle; };
+  const x = probe("#010203"); if (x !== probe("#040506")) return null;
+  let m = /^#([0-9a-f]{6})$/i.exec(x); if (m) return { hex: "#" + m[1].toLowerCase(), a: 1 };
+  m = /^rgba?\(([^)]+)\)$/.exec(x); if (!m) return null;
+  const p = m[1].split(",").map(Number); return { hex: "#" + p.slice(0, 3).map(v => v.toString(16).padStart(2, "0")).join(""), a: p.length > 3 ? p[3] : 1 };
+}
+const stopCss = (hex, a) => a >= 1 ? hex : a <= 0 ? "transparent" : `rgba(${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)}, ${Math.round(a * 100) / 100})`;
+function stopRow(h, c) {
+  return `<span class="stop"><input type="number" class="sh" step="0.25" min="0" value="${esc(h)}" title="시간"><span class="mute">시간</span>` +
+    `<input type="color" class="sc" value="${esc(c.hex)}" title="색"><input type="range" class="sa" min="0" max="100" value="${Math.round(c.a * 100)}" title="불투명도(0 = 투명)"><span class="sav mute">${Math.round(c.a * 100)}%</span><button type="button" class="sx" title="지우기">✕</button></span>`;
+}
+function stopsEditor(key, list) {
+  const rows = (Array.isArray(list) ? list : []).map(s => { const i = String(s).indexOf(":"); if (i < 0) return null; const m = /^\s*([\d.]+)\s*(h|시간|m|분)?\s*$/i.exec(String(s).slice(0, i)); const c = cssColor(String(s).slice(i + 1)); return m && c ? { h: /^(m|분)$/i.test(m[2] || "") ? +(Number(m[1]) / 60).toFixed(2) : Number(m[1]), c } : null; }).filter(Boolean);
+  return `<span class="stops" data-stops="${esc(key)}"><span class="stoprows">${rows.map(r => stopRow(r.h, r.c)).join("")}</span><span class="stopbar"><span class="stopprev"></span></span><span><button type="button" class="sadd">단계 추가</button> <span class="mute">시간 사이는 위젯이 보간한다. 투명은 불투명도 0</span></span></span>`;
+}
+function wireStops(form) {
+  for (const box of form.querySelectorAll("[data-stops]")) {
+    const preview = () => {
+      const rows = readStops(box).map(s => { const i = s.indexOf(":"); return { h: Number(s.slice(0, i)), c: s.slice(i + 1) }; }).sort((a, b) => a.h - b.h);
+      const max = Math.max(0.5, ...rows.map(r => r.h));
+      box.querySelector(".stopprev").style.background = rows.length ? `linear-gradient(to right, ${rows.map(r => `${r.c} ${(r.h / max * 100).toFixed(1)}%`).join(", ")})` : "none";
+      box.querySelectorAll(".stop").forEach(r => r.querySelector(".sav").textContent = r.querySelector(".sa").value + "%");
+    };
+    box.addEventListener("input", preview);
+    box.addEventListener("click", e => {
+      if (e.target.classList.contains("sx")) { e.target.closest(".stop").remove(); preview(); }
+      if (e.target.classList.contains("sadd")) {
+        const hs = [...box.querySelectorAll(".sh")].map(x => Number(x.value) || 0);
+        box.querySelector(".stoprows").insertAdjacentHTML("beforeend", stopRow(hs.length ? Math.max(...hs) + 1 : 0, { hex: "#39d353", a: 1 })); preview();
+      }
+    });
+    preview();
+  }
+}
+const readStops = box => [...box.querySelectorAll(".stop")].map(r => `${Number(r.querySelector(".sh").value) || 0}:${stopCss(r.querySelector(".sc").value, Number(r.querySelector(".sa").value) / 100)}`);
+
 /** 매니페스트 settings 선언으로 작은 폼을 만든다. key가 devices인 list는 등록부의 기기 목록에서 고른다. 저장했으면 true. */
 async function editWidgetSettings(w) {
   const p = renderers.find(r => r.id === w.type);
@@ -273,10 +315,18 @@ async function editWidgetSettings(w) {
       const devs = (registry.devices || []).filter(x => !x.revoked);
       input = `<span class="checks" data-list="${esc(d.key)}">${devs.map(x => `<label class="chk"><input type="checkbox" value="${esc(x.id)}" ${sel.has(x.id) ? "checked" : ""}> ${esc(x.name)} <span class="mute">${esc(x.id)}</span></label>`).join("")}<span class="mute">(아무것도 안 고르면 전부)</span></span>`;
     }
+    else if (d.type === "list" && d.key === "categories") {   // 분류 규칙 이름(상위 이름 포함)에서 고른다
+      const sel = new Set(Array.isArray(v) ? v : []), names = new Set();
+      for (const r of [...(settings.categories || []), ...(settings.phone_categories || [])]) { if (!r || !r.name) continue; const parts = r.name.split("/"); for (let i = 1; i <= parts.length; i++) names.add(parts.slice(0, i).join("/")); }
+      for (const x of sel) names.add(x);   // 지금 규칙에 없는 이름도 고른 그대로 보인다
+      input = `<span class="checks" data-list="${esc(d.key)}">${[...names].sort((a, b) => a.localeCompare(b, "ko")).map(x => `<label class="chk"><input type="checkbox" value="${esc(x)}" ${sel.has(x) ? "checked" : ""}> ${"&nbsp;".repeat((x.split("/").length - 1) * 3)}${esc(x.split("/").pop())}</label>`).join("") || '<span class="mute">분류 규칙이 없습니다</span>'}<span class="mute">(아무것도 안 고르면 미분류를 뺀 전부. 상위를 고르면 하위 포함)</span></span>`;
+    }
+    else if (d.type === "list" && d.key === "colors") input = stopsEditor(d.key, v);
     else if (d.type === "list") input = `<input name="${esc(d.key)}" value="${esc(Array.isArray(v) ? v.join(", ") : v)}" placeholder="쉼표로 구분">`;
     else input = `<input name="${esc(d.key)}" value="${esc(v)}">`;
     return `<label><span>${esc(d.label || d.key)}</span>${input}</label>`;
   }).join("");
+  wireStops(form);
   $("#dlgTitle").textContent = `${p.name} 설정`;
   dlg.showModal();
   await new Promise(res => { $("#dlgOk").onclick = () => { dlg.close("ok"); res(); }; $("#dlgCancel").onclick = () => { dlg.close("cancel"); res(); }; });
@@ -284,10 +334,11 @@ async function editWidgetSettings(w) {
   const out = {};
   for (const d of decl) {
     const el = form.querySelector(`[name="${CSS.escape(d.key)}"]`);
-    if (d.type === "list" && d.key === "devices") out[d.key] = [...form.querySelectorAll(`[data-list="${CSS.escape(d.key)}"] input:checked`)].map(x => x.value);
+    if (d.type === "list" && d.key === "colors") out[d.key] = readStops(form.querySelector(`[data-stops="${CSS.escape(d.key)}"]`)).sort((a, b) => parseFloat(a) - parseFloat(b));
+    else if (d.type === "list" && (d.key === "devices" || d.key === "categories")) out[d.key] = [...form.querySelectorAll(`[data-list="${CSS.escape(d.key)}"] input:checked`)].map(x => x.value);
     else if (d.type === "boolean") out[d.key] = el.checked;
     else if (d.type === "number") out[d.key] = Number(el.value);
-    else if (d.type === "list") out[d.key] = el.value.split(",").map(s => s.trim()).filter(Boolean);
+    else if (d.type === "list") out[d.key] = el.value.split(/,(?![^()]*\))/).map(s => s.trim()).filter(Boolean);   // rgba(…) 같은 괄호 안 쉼표는 나누지 않는다
     else out[d.key] = el.value;
   }
   w.settings = out;

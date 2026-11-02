@@ -10,13 +10,14 @@
     : null;
   const pending = new Map();
   let seq = 0;
+  const inst = Math.random().toString(36).slice(2, 10);
   const pluginId = (() => {
     const m = /^plugin-([a-z0-9-]+)\.lifelog$/.exec(location.hostname);
     return m ? m[1] : "shell";
   })();
 
   function call(method, ...args) {
-    const id = pluginId + ":" + (++seq);
+    const id = pluginId + ":" + inst + ":" + (++seq);   // 같은 위젯을 여러 개 놓아도 응답이 섞이지 않게 문서마다 다른 inst
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject });
       const msg = { id, from: pluginId, method, args };

@@ -187,8 +187,18 @@
     for (const r of rows) if (r.metric === metric && r.value != null && (!cat || r.category === cat)) { const k = t(r.time ?? r.start); if (!best || k >= t(best.time ?? best.start)) best = r; }
     return best;
   }
+  /** 하루 범위와 가장 많이 겹치는 일별 행(category 기본 "daily"). 범위 끝 무렵 시작한 다음 날 행을 고르지 않는다. */
+  function dayRow(rows, metric, range, cat = "daily") {
+    const S = t(range.start), E = t(range.end); let best = null, bo = 0;
+    for (const r of rows) {
+      if (r.metric !== metric || r.value == null || (cat && r.category !== cat)) continue;
+      const o = Math.min(E, t(r.end)) - Math.max(S, t(r.start));
+      if (o > bo) { bo = o; best = r; }
+    }
+    return best;
+  }
   /** jsonb extra(문자열이거나 객체) → 객체 */
   const extraOf = r => { const x = r && r.extra; if (!x) return {}; if (typeof x === "string") { try { return JSON.parse(x); } catch (_) { return {}; } } return x; };
 
-  g.LifeLogSdk = { chart, daysBack, latest, extraOf, categorize, categoryColor, categoryTree, useRuleColors, leafName, UNCATEGORIZED, clip, subtract, merge, sumMs, groupSum, bucketHours, pairEvents, matchRules, fmtDur, fmtTime, hashColor, esc, activeWindows, ms: t };
+  g.LifeLogSdk = { chart, daysBack, latest, dayRow, extraOf, categorize, categoryColor, categoryTree, useRuleColors, leafName, UNCATEGORIZED, clip, subtract, merge, sumMs, groupSum, bucketHours, pairEvents, matchRules, fmtDur, fmtTime, hashColor, esc, activeWindows, ms: t };
 })(typeof window !== "undefined" ? window : globalThis);

@@ -1,0 +1,66 @@
+{
+  "type": "renderer",
+  "id": "widget-category-grass",
+  "version": "1.0.0",
+  "name": "분류 잔디",
+  "min_host_version": 1,
+  "platforms": [
+    "windows",
+    "android"
+  ],
+  "runtimes": {
+    "webview": "index.html"
+  },
+  "slot": "card",
+  "inputs": [
+    "win-window/window@1",
+    "win-afk/afk@1",
+    "phone-app/app@1"
+  ],
+  "settings": [
+    {
+      "key": "categories",
+      "type": "list",
+      "default": [],
+      "label": "대상 분류 (비우면 미분류를 뺀 전부. 상위 이름은 하위를 포함)"
+    },
+    {
+      "key": "devices",
+      "type": "list",
+      "default": [],
+      "label": "포함할 기기 (비우면 전부)"
+    },
+    {
+      "key": "days",
+      "type": "number",
+      "default": 182,
+      "label": "보여 줄 기간(일)"
+    },
+    {
+      "key": "colors",
+      "type": "list",
+      "default": ["0:transparent", "0.25:#0e4429", "1:#006d32", "3:#26a641", "6:#39d353"],
+      "label": "색 단계 (시간:색. 사이는 보간. 색은 #rgb·#rrggbbaa·rgb()·rgba()·hsl()·이름·transparent)"
+    },
+    {
+      "key": "interpolation",
+      "type": "enum",
+      "options": ["oklab", "rgb", "step"],
+      "default": "oklab",
+      "label": "보간 (oklab: 눈에 자연스럽게, rgb: 단순 섞기, step: 단계별로 끊기)"
+    },
+    {
+      "key": "week_start",
+      "type": "enum",
+      "options": ["월", "일"],
+      "default": "월",
+      "label": "한 주의 시작"
+    },
+    {
+      "key": "base",
+      "type": "boolean",
+      "default": true,
+      "label": "빈 칸 바탕 표시 (색이 투명할 때 칸 자리를 보여 줌)"
+    }
+  ]
+}

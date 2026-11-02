@@ -46,11 +46,12 @@ lifelog.ready(async (range, widget) => {
   try { rows = own(await q("health/span", { range, where: { metric: ["steps", "sh_steps", "steps_goal"] }, limit: 5000 }), st); }
   catch (e) { return msg("읽기 실패: " + e.message); }
   const S0 = S.ms(range.start), E0 = S.ms(range.end);
-  const hourly = rows.filter(r => r.metric === "steps" && r.category === "hourly" && r.value != null);
-  const daily = S.latest(rows, "steps", "daily") || S.latest(rows, "sh_steps", "daily");
+  // 시간별 행은 정각에 시작한 것만(옛 수집기가 겹쳐 쌓은 행 제외), 같은 시각은 한 번만
+  const seen = new Set(), hourly = rows.filter(r => r.metric === "steps" && r.category === "hourly" && r.value != null && S.ms(r.start) % 3600e3 === 0 && !seen.has(r.start) && seen.add(r.start));
+  const daily = S.dayRow(rows, "steps", range) || S.dayRow(rows, "sh_steps", range);
   const total = daily ? daily.value : hourly.reduce((a, r) => a + r.value, 0);
   if (!daily && !hourly.length) return msg("걸음 기록 없음");
-  const g = S.latest(rows, "steps_goal");
+  const g = S.dayRow(rows, "steps_goal", range, "goal") || S.latest(rows, "steps_goal");
   const goal = Number(st.goal) > 0 ? Number(st.goal) : g ? g.value : 6000;
   layout('<div class="head"></div><div class="chart"></div>');
   const frac = total / goal, color = frac >= 1 ? "#4caf50" : "#3fb6a8";

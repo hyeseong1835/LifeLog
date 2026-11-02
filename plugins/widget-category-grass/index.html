@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<style>
+  :root { --fg:#ddd; --mute:#888; --line:#2a2a2a; --base:#ffffff0d; --today:#e6edf3; color-scheme: dark; }
+  :root[data-theme="light"] { --fg:#1c1c1e; --mute:#6b6b70; --line:#dcdce0; --base:#0000000d; --today:#1f2328; color-scheme: light; }
+  html, body { height:100%; }
+  body { margin:0; padding:8px 12px 6px; font: 11px/1.3 "Segoe UI Variable", "Segoe UI", sans-serif; color:var(--fg); background:transparent; overflow:hidden; box-sizing:border-box; }
+  #root { display:flex; flex-direction:column; height:100%; gap:6px; }
+  #root.msg { display:block; color:var(--mute); }
+  .head { display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; flex:none; }
+  .head b { font-size:20px; font-weight:600; }
+  .head .u { color:var(--mute); margin-left:2px; }
+  .mute { color:var(--mute); }
+  .grid { flex:1; min-height:0; overflow-x:auto; overflow-y:hidden; }
+  .grid svg { display:block; height:100%; width:auto; max-width:none; }   /* 칸 영역보다 크면 비율을 지키며 줄인다(아래 줄이 잘리지 않게) */
+  text { fill:var(--mute); font-size:10px; }
+  .legend { flex:none; display:flex; align-items:center; gap:6px; color:var(--mute); }
+  .legend svg { overflow:visible; }
+</style></head>
+<body><div id="root" class="msg">불러오는 중…</div>
+<script src="https://app.lifelog/sdk.js"></script>
+<script>
+// 분류 잔디(GitHub 잔디 모양). 정한 분류를 하루에 얼마나 썼는지를 칸 색으로. 칸 하나 = 하루(대시보드의 하루 시작 시각 기준).
+// 색은 설정 colors의 "시간:색" 단계 사이를 보간한다(oklab = 눈에 고르게, rgb, step = 끊기). 투명도는 미리 곱한 알파로 섞어 회색 테두리가 생기지 않게 한다.
+// 데이터: 창(win-window)은 하루·앱·창 제목별 합계를 컴퓨터 규칙으로, 앱(phone-app)은 하루·package별 합계를 휴대폰 규칙으로 분류한다.
+// 집계 질의라 자리 비움을 구간마다 빼지 못한다. 대신 그날 창 시간에서 자리 비움 비율만큼 컴퓨터 쪽을 줄인다(근사).
+const S = LifeLogSdk, DAY = 86400e3, UNC = S.UNCATEGORIZED;
+const root = document.getElementById("root");
+const msg = (t, sub) => { root.className = "msg"; root.innerHTML = S.esc(t) + (sub ? `<br><span class="mute">${S.esc(sub)}</span>` : ""); };
+
+// ---------------------------------------------------------------- 색
+const cx = document.createElement("canvas").getContext("2d");
+/** CSS 색 문자열 → [r, g, b, a](0~255, a 0~1). 모르는 색이면 null. 해석은 브라우저(canvas)에 맡긴다. */
+function parseColor(str) {
+  const s = String(str || "").trim(); if (!s) return null;
+  if (s.toLowerCase() === "transparent") return [0, 0, 0, 0];
+  const probe = v => { cx.fillStyle = v; cx.fillStyle = s; return cx.fillStyle; };
+  const a = probe("#010203"), b = probe("#040506");
+  if (a !== b) return null;   // 둘 다 그대로면 해석 실패
+  let m = /^#([0-9a-f]{6})$/i.exec(a);
+  if (m) { const n = parseInt(m[1], 16); return [n >> 16 & 255, n >> 8 & 255, n & 255, 1]; }
+  m = /^rgba?\(([^)]+)\)$/.exec(a);
+  if (m) { const p = m[1].split(",").map(Number); return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1]; }
+  return null;
+}
+const toLin = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+const fromLin = c => { const v = c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055; return Math.round(Math.max(0, Math.min(1, v)) * 255); };
+function toLab([r, g, b]) {   // sRGB → OKLab
+  r = toLin(r); g = toLin(g); b = toLin(b);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b), m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b), s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s, 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s];
+}
+function fromLab([L, a, b]) {
+  const l = Math.pow(L + 0.3963377774 * a + 0.2158037573 * b, 3), m = Math.pow(L - 0.1055613458 * a - 0.0638541728 * b, 3), s = Math.pow(L - 0.0894841775 * a - 1.2914855480 * b, 3);
+  return [fromLin(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s), fromLin(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s), fromLin(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s)];
+}
+/** 두 색 사이 t(0~1). 알파를 미리 곱해 섞는다(투명 ↔ 색이 회색을 거치지 않게). */
+function mix(c1, c2, t, mode) {
+  const a = c1[3] + (c2[3] - c1[3]) * t;
+  if (a <= 0.0001) return [0, 0, 0, 0];
+  const w1 = c1[3] * (1 - t) / a, w2 = c2[3] * t / a;
+  if (mode === "rgb") return [0, 1, 2].map(i => Math.round(c1[i] * w1 + c2[i] * w2)).concat(a);
+  const l1 = toLab(c1), l2 = toLab(c2);
+  return fromLab([0, 1, 2].map(i => l1[i] * w1 + l2[i] * w2)).concat(a);
+}
+const css = c => c[3] <= 0 ? "transparent" : `rgba(${c[0]},${c[1]},${c[2]},${+c[3].toFixed(3)})`;
+/** "1.5:#26a641", "90m:rgba(…)", "2h: blue" → { h, c }. 시간 뒤 단위 h·시간·m·분. */
+function parseStops(list) {
+  const out = [];
+  for (const raw of Array.isArray(list) ? list : []) {
+    const i = String(raw).indexOf(":"); if (i < 0) continue;
+    const m = /^\s*([\d.]+)\s*(h|시간|m|분)?\s*$/i.exec(String(raw).slice(0, i)); const c = parseColor(String(raw).slice(i + 1));
+    if (!m || !c) continue;
+    const v = Number(m[1]); out.push({ h: /^(m|분)$/i.test(m[2] || "") ? v / 60 : v, c });
+  }
+  return out.sort((a, b) => a.h - b.h);
+}
+const DEFAULT_STOPS = ["0:transparent", "0.25:#0e4429", "1:#006d32", "3:#26a641", "6:#39d353"];
+function colorAt(stops, h, mode) {
+  if (mode === "step") { let j = 0; for (let k = 0; k < stops.length; k++) if (stops[k].h <= h) j = k; return stops[j].c; }   // 그 시간 이하인 가장 높은 단계
+  if (h <= stops[0].h) return stops[0].c;
+  const last = stops[stops.length - 1]; if (h >= last.h) return last.c;
+  let i = 0; while (h > stops[i + 1].h) i++;
+  return mix(stops[i].c, stops[i + 1].c, (h - stops[i].h) / (stops[i + 1].h - stops[i].h), mode);
+}
+
+// ---------------------------------------------------------------- 데이터
+/** 하루 묶음이 대시보드의 하루 시작(range.start의 시각)에 맞도록 고른 시간대. 정시가 아니면 그 지역의 자정을 쓴다. */
+function dayZone(startMs) {
+  const d = new Date(startMs), off = -d.getTimezoneOffset(), b = off - (d.getHours() * 60 + d.getMinutes());
+  if (b % 60 === 0 && Math.abs(b) <= 12 * 60) return b === 0 ? "UTC" : `Etc/GMT${b > 0 ? "-" : "+"}${Math.abs(b / 60)}`;   // Etc 이름은 부호가 반대
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
+const q = async (view, opts) => (await lifelog.query(view, opts)).rows;
+
+let cache = null;   // { key, first, n, value[], byPath[] } — 크기만 바뀌면 다시 묻지 않는다
+async function load(range, st) {
+  const n = Math.max(7, Math.min(730, Math.round(Number(st.days) || 182)));
+  const devices = Array.isArray(st.devices) && st.devices.length ? st.devices : [null];
+  const cats = (Array.isArray(st.categories) ? st.categories : []).map(String).filter(Boolean);
+  const S0 = S.ms(range.start), first = S0 - (n - 1) * DAY, end = S.ms(range.end), tz = dayZone(S0);
+  const settings = await lifelog.settings();
+  const pcRules = settings.categories || [], phRules = settings.phone_categories || [];
+  const target = path => cats.length ? cats.some(c => path === c || path.startsWith(c + "/")) : path !== UNC;
+  const pcT = new Array(n).fill(0), pcAll = new Array(n).fill(0), afk = new Array(n).fill(0), ph = new Array(n).fill(0);
+  const byPath = Array.from({ length: n }, () => new Map());
+  const idx = r => Math.round((S.ms(r.time) - first) / DAY);
+  const chunks = []; for (let s = first; s < end; s += 28 * DAY) chunks.push({ start: new Date(s).toISOString(), end: new Date(Math.min(end, s + 28 * DAY)).toISOString() });
+  let done = 0; const errors = [];
+  const safe = p => p.catch(e => { errors.push(e.message); return []; });
+  for (const dev of devices) for (const r of chunks) {
+    const base = { range: r, tz, limit: 50000 }; if (dev) base.device = dev;
+    const [win, away, app] = await Promise.all([
+      safe(q("win-window/window", Object.assign({ group: { time: "day", by: ["app", "title"] }, agg: { dur: "duration" } }, base))),
+      safe(q("win-afk/afk", Object.assign({ where: { afk: [true] }, group: { time: "day" }, agg: { dur: "duration" } }, base))),
+      safe(q("phone-app/app", Object.assign({ group: { time: "day", by: ["package"] }, agg: { dur: "duration" } }, base))),
+    ]);
+    for (const x of win) { const i = idx(x), sec = Number(x.dur) || 0; if (i < 0 || i >= n) continue; pcAll[i] += sec; const p = S.matchRules(pcRules, x.app, x.title) || UNC; if (target(p)) { pcT[i] += sec; byPath[i].set(p, (byPath[i].get(p) || 0) + sec * 1); } }
+    for (const x of away) { const i = idx(x); if (i >= 0 && i < n) afk[i] += Number(x.dur) || 0; }
+    for (const x of app) { const i = idx(x), sec = Number(x.dur) || 0; if (i < 0 || i >= n) continue; const p = S.matchRules(phRules, x.package, "") || UNC; if (target(p)) { ph[i] += sec; byPath[i].set("📱 " + p, (byPath[i].get("📱 " + p) || 0) + sec); } }
+    done++; root.className = "msg"; root.textContent = `불러오는 중… ${done}/${chunks.length * devices.length}`;
+  }
+  const value = pcT.map((v, i) => { const f = pcAll[i] > 0 ? Math.max(0, pcAll[i] - afk[i]) / pcAll[i] : 1; return v * f + ph[i]; });   // 초
+  // 툴팁의 분류별 시간도 같은 비율로
+  byPath.forEach((m, i) => { const f = pcAll[i] > 0 ? Math.max(0, pcAll[i] - afk[i]) / pcAll[i] : 1; for (const [k, v] of m) if (!k.startsWith("📱")) m.set(k, v * f); });
+  return { first, n, value, byPath, noRules: !pcRules.length && !phRules.length, cats, errors };
+}
+
+// ---------------------------------------------------------------- 그리기
+const WD = ["일", "월", "화", "수", "목", "금", "토"];
+function render(data, st) {
+  const stops = (() => { const s = parseStops(st.colors); return s.length ? s : parseStops(DEFAULT_STOPS); })();
+  const mode = ["oklab", "rgb", "step"].includes(st.interpolation) ? st.interpolation : "oklab";
+  const ws = st.week_start === "일" ? 0 : 1, showBase = st.base !== false;
+  const { first, n, value, byPath } = data;
+  const hours = value.map(v => v / 3600);
+  const total = hours.reduce((a, b) => a + b, 0), active = hours.filter(h => h >= 1 / 60).length;
+  let streak = 0; for (let i = n - 1; i >= 0 && hours[i] >= 1 / 60; i--) streak++;
+  let best = 0; for (let i = 0, run = 0; i < n; i++) { run = hours[i] >= 1 / 60 ? run + 1 : 0; best = Math.max(best, run); }
+  root.className = ""; root.innerHTML = '<div class="head"></div><div class="grid"></div><div class="legend"></div>';
+  const fmtH = h => h >= 10 ? Math.round(h) + "시간" : h >= 1 ? (Math.round(h * 10) / 10) + "시간" : Math.round(h * 60) + "분";
+  root.querySelector(".head").innerHTML = `<span><b>${fmtH(total)}</b><span class="u">${n}일</span></span><span class="mute">기록 있는 날 ${active}일 · 연속 ${streak}일(최장 ${best}일) · 하루 평균 ${fmtH(total / Math.max(1, active))} · 오늘 ${fmtH(hours[n - 1])}</span>` +
+    (data.cats.length ? `<span class="mute">${data.cats.map(S.esc).join(", ")}</span>` : "") +
+    (data.errors.length ? `<span style="color:#e0a030" title="${S.esc(data.errors.join(" / "))}">읽기 실패 ${data.errors.length}회: ${S.esc(data.errors[0])}</span>` : "");
+  // 칸 배치: 열 = 주, 행 = 요일
+  const w0 = (new Date(first).getDay() - ws + 7) % 7, cols = Math.ceil((n + w0) / 7);
+  const grid = root.querySelector(".grid"), L = 18, T = 14, gap = 3;
+  const W = grid.clientWidth || 300, H = grid.clientHeight || 120;
+  let cell = Math.floor(Math.min((W - L) / cols - gap, (H - T) / 7 - gap));
+  cell = Math.max(8, Math.min(22, cell));
+  const pitch = cell + gap, svgW = L + cols * pitch, svgH = T + 7 * pitch;
+  let svg = `<svg viewBox="0 0 ${svgW} ${svgH}" style="min-width:${Math.min(svgW, cols * 11 + L)}px">`;
+  for (let r = 1; r < 7; r += 2) svg += `<text x="0" y="${T + r * pitch + cell - 2}">${WD[(r + ws) % 7]}</text>`;   // 둘째·넷째·여섯째 줄(월요일 시작이면 화·목·토)
+  let lastMonth = -1;
+  for (let i = 0; i < n; i++) {
+    const t = first + i * DAY, d = new Date(t), k = i + w0, c = Math.floor(k / 7), r = k % 7, x = L + c * pitch, y = T + r * pitch;
+    if (r === 0 || i === 0) { const mth = new Date(t + (6 - r) * DAY).getMonth(); if (mth !== lastMonth) { if (c < cols - 1 || i === 0) svg += `<text x="${x}" y="10">${mth + 1}월</text>`; lastMonth = mth; } }
+    if (showBase) svg += `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" rx="2" fill="var(--base)"/>`;
+    const col = colorAt(stops, hours[i], mode);
+    const top = [...byPath[i].entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([p, s]) => `\n${S.leafName(p)} ${S.fmtDur(s * 1000)}`).join("");
+    svg += `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" rx="2" fill="${css(col)}"${i === n - 1 ? ` stroke="var(--today)" stroke-width="1.2"` : ""}><title>${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} (${WD[d.getDay()]}) · ${S.fmtDur(value[i] * 1000)}${S.esc(top)}</title></rect>`;
+  }
+  grid.innerHTML = svg + "</svg>";
+  grid.scrollLeft = grid.scrollWidth;   // 넘치면 최근 쪽을 보여 준다
+  // 범례: 0부터 마지막 단계까지 보간한 띠와 단계 눈금
+  const maxH = Math.max(stops[stops.length - 1].h, 0.5), bw = Math.min(220, Math.max(120, W - 120)), bh = 10, steps = 48;
+  let lg = `<svg width="${bw}" height="${bh + 12}" viewBox="0 0 ${bw} ${bh + 12}">`;
+  if (showBase) lg += `<rect x="0" y="0" width="${bw}" height="${bh}" rx="2" fill="var(--base)"/>`;
+  for (let s = 0; s < steps; s++) lg += `<rect x="${(s * bw / steps).toFixed(1)}" y="0" width="${(bw / steps + 0.6).toFixed(1)}" height="${bh}" fill="${css(colorAt(stops, (s + 0.5) / steps * maxH, mode))}"/>`;
+  let prevX = -99;
+  for (const st2 of stops) { const x = Math.min(bw - 1, st2.h / maxH * bw); if (x - prevX < 20) continue; prevX = x; lg += `<line x1="${x}" x2="${x}" y1="${bh}" y2="${bh + 3}" stroke="var(--mute)"/><text x="${Math.max(0, Math.min(bw - 14, x - 6))}" y="${bh + 12}">${st2.h >= 1 ? st2.h + "h" : Math.round(st2.h * 60) + "m"}</text>`; }
+  root.querySelector(".legend").innerHTML = `<span>적음</span>${lg}</svg><span>많음</span><span class="mute">${mode}</span>`;
+}
+
+let last = null;
+lifelog.ready(async (range, widget) => {
+  const st = widget.settings || {};
+  const key = JSON.stringify([range.start, range.end, st.days, st.devices, st.categories]);
+  try {
+    if (!cache || cache.key !== key) { msg("불러오는 중…"); cache = Object.assign(await load(range, st), { key }); }
+  } catch (e) { return msg("읽기 실패: " + e.message); }
+  if (cache.noRules) return msg("분류 규칙이 없습니다", "대시보드 설정 › 분류 규칙에서 만드세요.");
+  last = st; render(cache, st);
+});
+new ResizeObserver(() => { if (cache && last) render(cache, last); }).observe(document.body);
+</script></body></html>

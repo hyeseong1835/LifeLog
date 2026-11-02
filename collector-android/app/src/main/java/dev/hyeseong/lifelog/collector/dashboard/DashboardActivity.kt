@@ -61,9 +61,13 @@ class DashboardActivity : ComponentActivity() {
             allowFileAccess = false; allowContentAccess = false
             mediaPlaybackRequiresUserGesture = true
         }
-        setContentView(web)
-        // 상태 표시줄·내비게이션 막대 아래로 내용이 들어가지 않게
-        ViewCompat.setOnApplyWindowInsetsListener(web) { v, insets -> val b = insets.getInsets(WindowInsetsCompat.Type.systemBars()); v.updatePadding(top = b.top, bottom = b.bottom); insets }
+        // 상태 표시줄·내비게이션 막대 아래로 내용이 들어가지 않게 바깥 틀에 여백을 준다(WebView 자체 padding은 내용에 안 먹는다)
+        val root = android.widget.FrameLayout(this).apply { setBackgroundColor(0xFF111111.toInt()); addView(web) }
+        setContentView(root)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val b = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            v.updatePadding(left = b.left, top = b.top, right = b.right, bottom = b.bottom); WindowInsetsCompat.CONSUMED
+        }
         val b = DashboardBridge(this, cfg, ::log)
         bridge = b
         web.webViewClient = object : WebViewClient() {
