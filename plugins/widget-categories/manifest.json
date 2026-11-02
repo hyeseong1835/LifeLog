@@ -1,9 +1,13 @@
 {
   "type": "renderer",
   "id": "widget-categories",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "name": "분류별 시간",
   "min_host_version": 1,
+  "platforms": [
+    "windows",
+    "android"
+  ],
   "runtimes": {
     "webview": "index.html"
   },

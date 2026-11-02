@@ -1,9 +1,12 @@
 {
   "type": "collector",
   "id": "win-afk",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "자리 비움",
   "min_host_version": 1,
+  "platforms": [
+    "windows"
+  ],
   "runtimes": {
     "js": "main.js"
   },

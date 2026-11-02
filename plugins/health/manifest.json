@@ -1,9 +1,30 @@
 {
   "type": "collector",
   "id": "health",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "name": "건강",
   "min_host_version": 1,
+  "platforms": [
+    "android"
+  ],
+  "requires": [
+    {
+      "name": "Health Connect",
+      "why": "걸음·수면·심박 등을 Health Connect에서 읽는다. 삼성 헬스 > 설정 > Health Connect 연동을 켠다",
+      "url": "https://play.google.com/store/apps/details?id=com.google.android.apps.healthdata",
+      "platforms": [
+        "android"
+      ]
+    },
+    {
+      "name": "삼성 헬스 (선택)",
+      "why": "read:shealth: 에너지 점수·수면 점수·피부 온도 등. 삼성 헬스 개발자 모드의 Developer Mode for Data Read가 필요",
+      "url": "https://developer.samsung.com/health/data/overview.html",
+      "platforms": [
+        "android"
+      ]
+    }
+  ],
   "runtimes": {
     "js": "main.js"
   },

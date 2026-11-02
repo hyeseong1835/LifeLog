@@ -1,9 +1,12 @@
 {
   "type": "collector",
   "id": "win-power",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "전원·잠금",
   "min_host_version": 1,
+  "platforms": [
+    "windows"
+  ],
   "runtimes": {
     "js": "main.js"
   },

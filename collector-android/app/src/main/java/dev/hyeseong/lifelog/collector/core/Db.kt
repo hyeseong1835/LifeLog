@@ -13,7 +13,9 @@ import java.util.UUID
 class Db(private val cfg: Config) : AutoCloseable {
     companion object {
         /** 이 앱이 아는 코어 스키마 버전. DB가 더 높으면 쓰기를 멈춘다. */
-        const val KNOWN_SCHEMA_VERSION = 6
+        const val KNOWN_SCHEMA_VERSION = 7
+        /** 0007부터: 공유 분류 규칙, 매니페스트 platforms·requires */
+        const val RULES_SCHEMA_VERSION = 7
         init { Class.forName("org.postgresql.Driver") }
     }
 
@@ -29,9 +31,11 @@ class Db(private val cfg: Config) : AutoCloseable {
         return c
     }
 
+    private var schema: Int? = null
     fun schemaVersion(): Int = connection().createStatement().use { st ->
         st.executeQuery("SELECT COALESCE(max(version), 0) FROM lifelog.schema_migrations").use { r -> r.next(); r.getInt(1) }
-    }
+    }.also { schema = it }
+    fun cachedSchema(): Int = schema ?: schemaVersion()
 
     fun syncClock() {
         val before = System.currentTimeMillis()
@@ -43,7 +47,9 @@ class Db(private val cfg: Config) : AutoCloseable {
     fun now(): Instant = Instant.ofEpochMilli(System.currentTimeMillis() + clockOffsetMs)
 
     fun registerPlugin(m: Manifest, device: String): JSONObject = connection().prepareStatement("SELECT lifelog.register_plugin(?::jsonb, ?)").use { ps ->
-        ps.setString(1, m.raw); ps.setString(2, device)
+        // 0006 DB는 platforms·requires를 모른다. 두 키를 빼고 등록하고, 0007이 적용되면 같은 버전으로 다시 등록할 때 채워진다
+        val raw = if (cachedSchema() < RULES_SCHEMA_VERSION) JSONObject(m.raw).apply { remove("platforms"); remove("requires") }.toString() else m.raw
+        ps.setString(1, raw); ps.setString(2, device)
         ps.executeQuery().use { r -> r.next(); JSONObject(r.getString(1)) }
     }
 
@@ -69,6 +75,58 @@ class Db(private val cfg: Config) : AutoCloseable {
 
     /** plugins.source_url(0006). URL로 설치했을 때 적는다. */
     fun setPluginSource(plugin: String, url: String) = connection().prepareStatement("SELECT lifelog.set_plugin_source(?, ?)").use { ps -> ps.setString(1, plugin); ps.setString(2, url); ps.executeQuery().close() }
+
+    // ---- 대시보드(렌더러 호스트)용 ----
+
+    class OutputInfo(val plugin: String, val output: String, val schemaVersion: Int, val isSpan: Boolean, val columns: Map<String, String>, val label: String, val pluginName: String) {
+        val view get() = "$plugin/$output"
+    }
+
+    /** 등록부의 수집기 출력 목록(테이블 메타 + 매니페스트 라벨 열). collector-windows Db.ListOutputsAsync와 같다. */
+    fun listOutputs(): List<OutputInfo> = connection().createStatement().use { st ->
+        st.executeQuery("SELECT ct.plugin_id, ct.output, ct.schema_version, ct.kind, ct.columns::text, pv.manifest::text " +
+            "FROM lifelog.collector_tables ct JOIN lifelog.plugins p ON p.id = ct.plugin_id " +
+            "JOIN lifelog.plugin_versions pv ON pv.plugin_id = p.id AND pv.version = p.latest_version ORDER BY ct.plugin_id, ct.output, ct.schema_version").use { r ->
+            val out = ArrayList<OutputInfo>()
+            while (r.next()) {
+                val cols = JSONObject(r.getString(5)).let { c -> c.keys().asSequence().associateWith { c.getString(it) } }
+                val man = JSONObject(r.getString(6))
+                val label = man.optJSONArray("outputs")?.let { a -> (0 until a.length()).map { a.getJSONObject(it) }.firstOrNull { it.getString("name") == r.getString(2) }?.optString("label") } ?: ""
+                out += OutputInfo(r.getString(1), r.getString(2), r.getInt(3), r.getString(4) == "span", cols, label, man.optString("name", r.getString(1)))
+            }
+            out
+        }
+    }
+
+    /** query 실행. 결과 { rows: [...], truncated }. 시각은 ISO(UTC), uuid는 문자열, jsonb는 문자열(Windows 호스트와 같다). */
+    fun query(spec: QuerySpec, meta: TableMeta): JSONObject = runQuery(connection(), spec, meta)
+
+    /** 등록부 전체(기기·플러그인·설치·테이블). collector-windows Db.ListRegistryAsync와 같은 SQL. */
+    fun listRegistry(): JSONObject = connection().createStatement().use { st ->
+        st.executeQuery("""SELECT json_build_object(
+  'devices', (SELECT COALESCE(json_agg(json_build_object('id', id, 'name', name, 'platform', platform, 'last_seen', last_seen, 'revoked', revoked_at IS NOT NULL) ORDER BY id), '[]'::json) FROM lifelog.devices),
+  'plugins', (SELECT COALESCE(json_agg(json_build_object(
+      'id', p.id, 'type', p.type, 'latest_version', p.latest_version, 'source_url', p.source_url,
+      'name', (SELECT v.manifest->>'name' FROM lifelog.plugin_versions v WHERE v.plugin_id = p.id AND v.version = p.latest_version),
+      'platforms', (SELECT v.manifest->'platforms' FROM lifelog.plugin_versions v WHERE v.plugin_id = p.id AND v.version = p.latest_version),
+      'requires', (SELECT v.manifest->'requires' FROM lifelog.plugin_versions v WHERE v.plugin_id = p.id AND v.version = p.latest_version),
+      'installs', (SELECT COALESCE(json_agg(json_build_object('device', i.device, 'version', i.installed_version, 'enabled', i.enabled, 'granted', i.granted, 'unmet', i.unmet, 'last_seen', i.last_seen) ORDER BY i.device), '[]'::json) FROM lifelog.plugin_installs i WHERE i.plugin_id = p.id),
+      'tables', (SELECT COALESCE(json_agg(t.table_name ORDER BY t.table_name), '[]'::json) FROM lifelog.collector_tables t WHERE t.plugin_id = p.id)
+    ) ORDER BY p.id), '[]'::json) FROM lifelog.plugins p))::text""").use { r -> r.next(); JSONObject(r.getString(1)) }
+    }
+
+    /** 공유 분류 규칙(0007) { pc, phone }. 0006 DB면 null(호출자가 로컬 파일을 쓴다). */
+    fun categoryRules(): JSONObject? {
+        if (cachedSchema() < RULES_SCHEMA_VERSION) return null
+        return connection().createStatement().use { st ->
+            st.executeQuery("SELECT json_build_object('pc', (SELECT rules FROM lifelog.category_rules WHERE kind = 'pc'), 'phone', (SELECT rules FROM lifelog.category_rules WHERE kind = 'phone'))::text")
+                .use { r -> r.next(); JSONObject(r.getString(1)) }
+        }
+    }
+
+    fun setCategoryRules(kind: String, rulesJson: String) = connection().prepareStatement("SELECT lifelog.set_category_rules(?, ?::jsonb)").use { ps ->
+        ps.setString(1, kind); ps.setString(2, rulesJson); ps.executeQuery().close()
+    }
 
     fun touchLastSeen(device: String) = connection().prepareStatement("UPDATE lifelog.devices SET last_seen = now() WHERE id = ?").use { ps -> ps.setString(1, device); ps.executeUpdate() }
 

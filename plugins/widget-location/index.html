@@ -1,67 +1,140 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <style>
-  :root { --fg:#ddd; --mute:#888; --dur:#aaa; --bar-fg:#000; --line:#2a2a2a; color-scheme: dark; }
-  :root[data-theme="light"] { --fg:#1c1c1e; --mute:#6b6b70; --dur:#555; --line:#dcdce0; color-scheme: light; }
+  :root { --fg:#ddd; --mute:#888; --dur:#aaa; --bar-fg:#000; --line:#2a2a2a; --btn:#222c; --btn-fg:#eee; color-scheme: dark; }
+  :root[data-theme="light"] { --fg:#1c1c1e; --mute:#6b6b70; --dur:#555; --line:#dcdce0; --btn:#fffd; --btn-fg:#222; color-scheme: light; }
   html, body { height:100%; }
   body { margin:0; font: 11px/1.3 "Segoe UI Variable", "Segoe UI", sans-serif; color:var(--fg); background:transparent; overflow:hidden; }
-  #map { position:relative; width:100%; height:100%; overflow:hidden; background:var(--map-bg, #1a1a1a); }
+  #map { position:relative; width:100%; height:100%; overflow:hidden; background:var(--map-bg, #1a1a1a); touch-action:none; cursor:grab; user-select:none; }
+  #map.dragging { cursor:grabbing; }
   :root[data-theme="light"] #map { --map-bg:#e8e8ec; }
   :root[data-theme="light"] #tiles img { filter:none; }
-  #tiles img { position:absolute; width:256px; height:256px; filter: brightness(.55) saturate(.6); }
+  #tiles img { position:absolute; width:256px; height:256px; filter: brightness(.55) saturate(.6); pointer-events:none; -webkit-user-drag:none; }
   svg { position:absolute; left:0; top:0; }
-  .info { position:absolute; left:8px; bottom:6px; color:#eee; background:rgba(0,0,0,.55); padding:2px 6px; border-radius:4px; }
-  .credit { position:absolute; right:6px; bottom:4px; color:#777; font-size:10px; }
+  .info { position:absolute; left:8px; bottom:6px; color:#eee; background:rgba(0,0,0,.55); padding:2px 6px; border-radius:4px; pointer-events:none; }
+  .credit { position:absolute; right:6px; bottom:4px; color:#777; font-size:10px; pointer-events:none; }
+  .ctl { position:absolute; right:6px; top:6px; display:flex; flex-direction:column; gap:3px; }
+  .ctl button { width:26px; height:26px; padding:0; border:1px solid #555a; border-radius:5px; background:var(--btn); color:var(--btn-fg); font:600 15px/1 "Segoe UI", sans-serif; cursor:pointer; }
+  .ctl button:hover { filter:brightness(1.2); }
   .mute { color:#666; padding:10px; }
 </style></head>
-<body><div id="map"><div id="tiles"></div></div>
+<body><div id="map"><div id="tiles"></div><svg id="layer"></svg><div class="ctl"><button id="zin" title="확대">+</button><button id="zout" title="축소">−</button><button id="fit" title="모든 점 보기">⟲</button></div></div>
 <script src="https://app.lifelog/sdk.js"></script>
 <script>
 // 위치 점 위젯. phone-location/point를 Web Mercator로 투영해 점·선을 그리고, 설정 map이 켜져 있으면 OpenStreetMap 타일을 배경에 깐다.
 // 외부 라이브러리 없이 타일 좌표(z/x/y)를 직접 계산한다. 지도를 끄면 바깥으로 나가는 요청이 없다.
+// 확대·이동: 휠(커서 기준), 더블클릭·두 번 탭(확대, Shift+더블클릭은 축소), 두 손가락 벌리기·오므리기, 끌기(이동), 오른쪽 위 버튼(+ − ⟲ 모든 점 보기).
 const S = LifeLogSdk;
-const TILE = 256;
+const TILE = 256, ZMIN = 2, ZMAX = 19;
 const lon2x = (lon, z) => (lon + 180) / 360 * Math.pow(2, z) * TILE;
 const lat2y = (lat, z) => { const r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * Math.pow(2, z) * TILE; };
+const map = document.getElementById("map"), tiles = document.getElementById("tiles"), layer = document.getElementById("layer");
 
-lifelog.ready(async (range, widget) => {
-  const st = widget.settings || {};
-  const useMap = st.map !== false, usePath = st.path !== false, maxAcc = Number(st.max_accuracy) || 500;
-  const map = document.getElementById("map"), tiles = document.getElementById("tiles");
-  map.querySelectorAll("svg, .info, .credit, .mute").forEach(e => e.remove()); tiles.innerHTML = "";
-  let rows = [];
-  try { rows = (await lifelog.query("phone-location/point", { range, limit: 5000 })).rows; } catch (e) {}
-  rows = rows.filter(r => r.lat != null && r.lon != null && (r.accuracy == null || r.accuracy <= maxAcc)).sort((a, b) => S.ms(a.time) - S.ms(b.time));
-  if (rows.length === 0) { map.insertAdjacentHTML("beforeend", '<div class="mute">위치 기록 없음</div>'); return; }
-  const W = map.clientWidth || 300, H = map.clientHeight || 240;
+let rows = [], opt = { useMap: true, usePath: true }, range = null;
+let cam = null;   // { z, cx, cy }: 줌과 화면 가운데의 월드 픽셀 좌표(그 줌 기준)
+const size = () => ({ W: map.clientWidth || 300, H: map.clientHeight || 240 });
+
+function fitCam() {
+  const { W, H } = size();
   const lats = rows.map(r => r.lat), lons = rows.map(r => r.lon);
   const minLat = Math.min(...lats), maxLat = Math.max(...lats), minLon = Math.min(...lons), maxLon = Math.max(...lons);
-  // 모든 점이 들어가는 가장 큰 줌(최대 17)
-  let z = 17;
-  for (; z > 2; z--) { if (lon2x(maxLon, z) - lon2x(minLon, z) <= W - 40 && lat2y(minLat, z) - lat2y(maxLat, z) <= H - 40) break; }
-  const cx = (lon2x(minLon, z) + lon2x(maxLon, z)) / 2, cy = (lat2y(minLat, z) + lat2y(maxLat, z)) / 2;
-  const ox = cx - W / 2, oy = cy - H / 2;   // 화면 왼쪽 위의 월드 픽셀 좌표
-  if (useMap) {
-    const x0 = Math.floor(ox / TILE), x1 = Math.floor((ox + W) / TILE), y0 = Math.floor(oy / TILE), y1 = Math.floor((oy + H) / TILE), n = Math.pow(2, z);
+  let z = 17;   // 모든 점이 들어가는 가장 큰 줌(최대 17)
+  for (; z > ZMIN; z--) { if (lon2x(maxLon, z) - lon2x(minLon, z) <= W - 40 && lat2y(minLat, z) - lat2y(maxLat, z) <= H - 40) break; }
+  cam = { z, cx: (lon2x(minLon, z) + lon2x(maxLon, z)) / 2, cy: (lat2y(minLat, z) + lat2y(maxLat, z)) / 2 };
+}
+
+/** 화면 점(px, py)을 고정한 채 줌을 dz만큼 바꾼다. */
+function zoomAt(dz, px, py) {
+  if (!cam) return;
+  const { W, H } = size();
+  const z2 = Math.max(ZMIN, Math.min(ZMAX, cam.z + dz)); if (z2 === cam.z) return;
+  const k = Math.pow(2, z2 - cam.z);
+  const wx = cam.cx - W / 2 + px, wy = cam.cy - H / 2 + py;   // 커서 아래 월드 좌표
+  cam = { z: z2, cx: wx * k - px + W / 2, cy: wy * k - py + H / 2 };
+  draw();
+}
+
+let raf = 0;
+const drawSoon = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); };
+
+function draw() {
+  if (!cam || rows.length === 0) return;
+  const { W, H } = size(), z = cam.z, ox = cam.cx - W / 2, oy = cam.cy - H / 2;
+  // 타일: 이미 있는 img는 다시 쓰고(깜빡임 방지) 화면 밖 것은 지운다
+  const want = new Map();
+  if (opt.useMap) {
+    const n = Math.pow(2, z), x0 = Math.floor(ox / TILE), x1 = Math.floor((ox + W) / TILE), y0 = Math.floor(oy / TILE), y1 = Math.floor((oy + H) / TILE);
     for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
       if (y < 0 || y >= n) continue;
-      const img = document.createElement("img");
-      img.src = `https://tile.openstreetmap.org/${z}/${((x % n) + n) % n}/${y}.png`;
-      img.style.left = (x * TILE - ox) + "px"; img.style.top = (y * TILE - oy) + "px";
-      tiles.appendChild(img);
+      const wx = ((x % n) + n) % n;
+      want.set(`${z}/${x}/${y}`, { x, y, url: `https://tile.openstreetmap.org/${z}/${wx}/${y}.png` });
     }
-    map.insertAdjacentHTML("beforeend", '<div class="credit">© OpenStreetMap</div>');
   }
+  const have = new Map();
+  for (const img of [...tiles.children]) { if (want.has(img.dataset.k)) have.set(img.dataset.k, img); else img.remove(); }
+  for (const [k, t] of want) {
+    let img = have.get(k);
+    if (!img) { img = document.createElement("img"); img.dataset.k = k; img.draggable = false; img.src = t.url; tiles.appendChild(img); }
+    img.style.left = (t.x * TILE - ox) + "px"; img.style.top = (t.y * TILE - oy) + "px";
+  }
+  // 점·선
   const pts = rows.map(r => ({ x: lon2x(r.lon, z) - ox, y: lat2y(r.lat, z) - oy, r }));
-  let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
-  if (usePath && pts.length > 1) svg += `<polyline points="${pts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}" fill="none" stroke="#6cf" stroke-width="2" stroke-opacity=".7"/>`;
-  const t0 = S.ms(range.start), span = S.ms(range.end) - t0;
+  let svg = "";
+  if (opt.usePath && pts.length > 1) svg += `<polyline points="${pts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}" fill="none" stroke="#6cf" stroke-width="2" stroke-opacity=".7"/>`;
+  const t0 = S.ms(range.start), span = S.ms(range.end) - t0, rad = z >= 15 ? 4 : 3;
   for (const p of pts) {
+    if (p.x < -10 || p.y < -10 || p.x > W + 10 || p.y > H + 10) continue;
     const hue = 200 + 160 * Math.max(0, Math.min(1, (S.ms(p.r.time) - t0) / span));   // 시간이 갈수록 색이 바뀜
-    svg += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4" fill="hsl(${hue} 80% 60%)" stroke="#000" stroke-width="1"><title>${S.fmtTime(p.r.time)}  ±${Math.round(p.r.accuracy || 0)}m</title></circle>`;
+    svg += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${rad}" fill="hsl(${hue} 80% 60%)" stroke="#000" stroke-width="1"><title>${S.fmtTime(p.r.time)}  ±${Math.round(p.r.accuracy || 0)}m</title></circle>`;
   }
-  svg += "</svg>";
-  map.insertAdjacentHTML("beforeend", svg);
-  map.insertAdjacentHTML("beforeend", `<div class="info">${rows.length}개 점 · ${S.fmtTime(rows[0].time)}~${S.fmtTime(rows[rows.length - 1].time)} · z${z}${useMap ? "" : " · 지도 꺼짐"}</div>`);
+  layer.setAttribute("width", W); layer.setAttribute("height", H); layer.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  layer.innerHTML = svg;
+  let info = map.querySelector(".info");
+  if (!info) { info = document.createElement("div"); info.className = "info"; map.appendChild(info); }
+  info.textContent = `${rows.length}개 점 · ${S.fmtTime(rows[0].time)}~${S.fmtTime(rows[rows.length - 1].time)} · z${z}${opt.useMap ? "" : " · 지도 꺼짐"}`;
+}
+
+// ---- 조작 ----
+map.addEventListener("wheel", e => { e.preventDefault(); const b = map.getBoundingClientRect(); zoomAt(e.deltaY < 0 ? 1 : -1, e.clientX - b.left, e.clientY - b.top); }, { passive: false });
+map.addEventListener("dblclick", e => { if (e.target.closest(".ctl")) return; const b = map.getBoundingClientRect(); zoomAt(e.shiftKey ? -1 : 1, e.clientX - b.left, e.clientY - b.top); });
+const ptrs = new Map(); let pinch = null, lastTap = 0;
+map.addEventListener("pointerdown", e => {
+  if (e.target.closest(".ctl")) return;
+  map.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1 }; }
+  map.classList.add("dragging");
+  // 두 번 탭(터치) = 확대
+  if (e.pointerType === "touch" && ptrs.size === 1) { const now = Date.now(); if (now - lastTap < 300) { const r = map.getBoundingClientRect(); zoomAt(1, e.clientX - r.left, e.clientY - r.top); } lastTap = now; }
+});
+map.addEventListener("pointermove", e => {
+  const p = ptrs.get(e.pointerId); if (!p || !cam) return;
+  if (ptrs.size === 1) { cam.cx -= e.clientX - p.x; cam.cy -= e.clientY - p.y; drawSoon(); }
+  p.x = e.clientX; p.y = e.clientY;
+  if (ptrs.size === 2 && pinch) {
+    const [a, b] = [...ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y), r = map.getBoundingClientRect();
+    const mx = (a.x + b.x) / 2 - r.left, my = (a.y + b.y) / 2 - r.top;
+    if (d / pinch.d > 1.5) { zoomAt(1, mx, my); pinch.d = d; } else if (d / pinch.d < 0.66) { zoomAt(-1, mx, my); pinch.d = d; }
+  }
+});
+const up = e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; if (ptrs.size === 0) map.classList.remove("dragging"); };
+map.addEventListener("pointerup", up); map.addEventListener("pointercancel", up);
+const center = () => { const { W, H } = size(); return [W / 2, H / 2]; };
+document.getElementById("zin").onclick = () => zoomAt(1, ...center());
+document.getElementById("zout").onclick = () => zoomAt(-1, ...center());
+document.getElementById("fit").onclick = () => { if (rows.length) { fitCam(); draw(); } };
+new ResizeObserver(() => drawSoon()).observe(map);
+
+lifelog.ready(async (rng, widget) => {
+  const st = widget.settings || {};
+  opt = { useMap: st.map !== false, usePath: st.path !== false };
+  const maxAcc = Number(st.max_accuracy) || 500;
+  range = rng;
+  map.querySelectorAll(".credit, .mute, .info").forEach(e => e.remove()); tiles.innerHTML = ""; layer.innerHTML = "";
+  let data = [];
+  try { data = (await lifelog.query("phone-location/point", { range: rng, limit: 5000 })).rows; } catch (e) {}
+  rows = data.filter(r => r.lat != null && r.lon != null && (r.accuracy == null || r.accuracy <= maxAcc)).sort((a, b) => S.ms(a.time) - S.ms(b.time));
+  if (rows.length === 0) { cam = null; map.insertAdjacentHTML("beforeend", '<div class="mute">위치 기록 없음</div>'); return; }
+  if (opt.useMap) map.insertAdjacentHTML("beforeend", '<div class="credit">© OpenStreetMap</div>');
+  fitCam(); draw();   // 날짜·설정이 바뀌면 모든 점이 보이게 다시 맞춘다
 });
 </script></body></html>

@@ -38,6 +38,9 @@ public partial class MainWindow : Window
             var ver = await _db.SchemaVersionAsync();
             if (ver > Db.KnownSchemaVersion) { Status.Text = $"DB 코어 스키마({ver})가 이 앱({Db.KnownSchemaVersion})보다 높습니다. 앱을 갱신하세요."; return; }
 
+            var argv = Environment.GetCommandLineArgs();
+            if (Array.IndexOf(argv, "--plugins-dir") is var pd && pd >= 0 && pd + 1 < argv.Length) Bridge.PluginsDir = argv[pd + 1];   // 개발용
+            if (Array.IndexOf(argv, "--size") is var sz && sz >= 0 && sz + 1 < argv.Length && argv[sz + 1].Split('x') is [var sw, var sh]) { Width = double.Parse(sw); Height = double.Parse(sh); }   // 개발용: 창 크기
             var env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(Config.Dir, "webview2"));
             await Web.EnsureCoreWebView2Async(env);
             var core = Web.CoreWebView2;
@@ -48,6 +51,7 @@ public partial class MainWindow : Window
             core.SetVirtualHostNameToFolderMapping("app.lifelog", webDir, CoreWebView2HostResourceAccessKind.Allow);
             Bridge.Logger = Log;
             _bridge = new Bridge(_db, cfg, core, this);
+            await _bridge.MigrateLocalRulesAsync();
             await _bridge.InstallBundledAsync();
             await _bridge.MapPluginsAsync();
             await core.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(Path.Combine(webDir, "bridge.js")));
@@ -92,7 +96,7 @@ public partial class MainWindow : Window
             }
             // 개발용: --offset N → N일 전 하루를 연다
             var oi = Array.IndexOf(args, "--offset");
-            var url = "https://app.lifelog/index.html" + (oi >= 0 && oi + 1 < args.Length ? "?offset=" + Uri.EscapeDataString(args[oi + 1]) : "?offset=0") + (args.Contains("--edit") ? "&edit=1" : "") + (Array.IndexOf(args, "--theme") is var ti && ti >= 0 && ti + 1 < args.Length ? "&theme=" + args[ti + 1] : "") + (Array.IndexOf(args, "--page") is var pi && pi >= 0 && pi + 1 < args.Length ? "&page=" + args[pi + 1] : "") + (Array.IndexOf(args, "--sec") is var si2 && si2 >= 0 && si2 + 1 < args.Length ? "&sec=" + args[si2 + 1] : "");
+            var url = "https://app.lifelog/index.html" + (oi >= 0 && oi + 1 < args.Length ? "?offset=" + Uri.EscapeDataString(args[oi + 1]) : "?offset=0") + (args.Contains("--edit") ? "&edit=1" : "") + (args.Contains("--mobile") ? "&mobile=1" : "") + (Array.IndexOf(args, "--theme") is var ti && ti >= 0 && ti + 1 < args.Length ? "&theme=" + args[ti + 1] : "") + (Array.IndexOf(args, "--page") is var pi && pi >= 0 && pi + 1 < args.Length ? "&page=" + args[pi + 1] : "") + (Array.IndexOf(args, "--sec") is var si2 && si2 >= 0 && si2 + 1 < args.Length ? "&sec=" + args[si2 + 1] : "");
             core.Navigate(url);
         }
         catch (Exception e)

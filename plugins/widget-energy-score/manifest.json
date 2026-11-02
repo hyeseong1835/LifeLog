@@ -1,0 +1,32 @@
+{
+  "type": "renderer",
+  "id": "widget-energy-score",
+  "version": "1.0.0",
+  "name": "에너지·수면 점수",
+  "min_host_version": 1,
+  "platforms": [
+    "windows",
+    "android"
+  ],
+  "runtimes": {
+    "webview": "index.html"
+  },
+  "slot": "card",
+  "inputs": [
+    "health/span@1"
+  ],
+  "settings": [
+    {
+      "key": "device",
+      "type": "string",
+      "default": "",
+      "label": "기기 id (비우면 전부)"
+    },
+    {
+      "key": "days",
+      "type": "number",
+      "default": 14,
+      "label": "보여 줄 기간(일)"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "type": "renderer",
+  "id": "widget-skin-temp",
+  "version": "1.0.0",
+  "name": "피부 온도",
+  "min_host_version": 1,
+  "platforms": [
+    "windows",
+    "android"
+  ],
+  "runtimes": {
+    "webview": "index.html"
+  },
+  "slot": "card",
+  "inputs": [
+    "health/point@1"
+  ],
+  "settings": [
+    {
+      "key": "device",
+      "type": "string",
+      "default": "",
+      "label": "기기 id (비우면 전부)"
+    },
+    {
+      "key": "days",
+      "type": "number",
+      "default": 14,
+      "label": "평소 값을 계산할 기간(일)"
+    }
+  ]
+}

@@ -17,9 +17,23 @@ public sealed class Manifest
     [JsonPropertyName("settings")] public List<SettingDecl> Settings { get; set; } = new();
     [JsonPropertyName("privacy")] public List<SettingDecl> Privacy { get; set; } = new();
     [JsonPropertyName("outputs")] public List<Output> Outputs { get; set; } = new();
+    /// <summary>도는 플랫폼(windows | android | …). null이면 가리지 않음(0007).</summary>
+    [JsonPropertyName("platforms")] public List<string>? Platforms { get; set; }
+    /// <summary>앱 밖에서 따로 설치·실행해야 하는 프로그램·서비스(0007).</summary>
+    [JsonPropertyName("requires")] public List<Requirement> Requires { get; set; } = new();
+
+    public bool Supports(string platform) => Platforms is null || Platforms.Count == 0 || Platforms.Contains(platform);
 
     /// <summary>원문 JSON. 등록 함수에 그대로 보낸다(호스트가 다시 직렬화하면 멱등 비교가 깨질 수 있다).</summary>
     [JsonIgnore] public string Raw { get; private set; } = "";
+
+    public sealed class Requirement
+    {
+        [JsonPropertyName("name")] public string Name { get; set; } = "";
+        [JsonPropertyName("why")] public string? Why { get; set; }
+        [JsonPropertyName("url")] public string? Url { get; set; }
+        [JsonPropertyName("platforms")] public List<string>? Platforms { get; set; }
+    }
 
     public sealed class Capability
     {

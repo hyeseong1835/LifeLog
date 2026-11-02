@@ -1,9 +1,13 @@
 {
   "type": "renderer",
   "id": "widget-sunburst",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "name": "분류 선버스트",
   "min_host_version": 1,
+  "platforms": [
+    "windows",
+    "android"
+  ],
   "runtimes": {
     "webview": "index.html"
   },

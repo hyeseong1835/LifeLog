@@ -1,9 +1,12 @@
 {
   "type": "collector",
   "id": "phone-media",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "미디어 재생 (안드로이드)",
   "min_host_version": 1,
+  "platforms": [
+    "android"
+  ],
   "runtimes": {
     "js": "main.js"
   },

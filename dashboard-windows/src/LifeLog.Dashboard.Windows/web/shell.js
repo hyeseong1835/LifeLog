@@ -1,5 +1,7 @@
 // 셸: 날짜 이동, 뷰 탭, 위젯 보드(칸 좌표 x·y와 크기 w·h. 위치가 고정이라 창 크기가 바뀌어도 위젯이 움직이지 않고 스크롤만 생긴다),
-// 편집 모드(추가·삭제·머리띠를 끌어 이동·손잡이로 크기, 칸 단위 스냅), 설정(테마·하루 시작·칸 크기·분류 규칙). 설정·뷰는 기기별(Documents/대시보드 뷰·위젯.md).
+// 편집 모드(추가·삭제·머리띠를 끌어 이동·손잡이로 크기, 칸 단위 스냅), 설정(테마·하루 시작·칸 크기·분류 규칙).
+// 뷰·위젯 배치·위젯 설정·테마·하루 시작은 기기 로컬에만 저장하고 다른 기기와 공유하지 않는다. 분류 규칙만 DB(0007)에 두고 모든 기기가 같이 쓴다.
+// 휴대폰(platform android 또는 좁은 화면)은 위젯을 한 줄로 쌓는다(칸 높이 h는 그대로, 순서는 y·x). Documents/대시보드 뷰·위젯.md.
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const params = new URLSearchParams(location.search);
@@ -11,6 +13,9 @@ let registry = null;
 let viewId = null;
 let editing = params.get("edit") === "1";            // ?edit=1은 개발용
 let range = null;
+let platform = "windows";   // 호스트가 알려 준다(windows | android)
+let mobile = false;         // 한 줄 배치
+let rulesShared = false;    // 분류 규칙이 DB(모든 기기 공유)에 있는지. 0006 DB면 false(이 기기 로컬)
 
 const DEFAULT_WIDGETS = [
   { type: "builtin:timeline", x: 0, y: 0, w: 20, h: 5 },
@@ -28,6 +33,12 @@ const DEFAULT_WIDGETS = [
 ];
 const defaultWidgets = () => DEFAULT_WIDGETS.map(w => Object.assign({ id: uid(), settings: {} }, w));
 const DEFAULT_VIEWS = [{ id: "default", name: "기본", widgets: DEFAULT_WIDGETS.map((w, i) => Object.assign({ id: "w" + (i + 1), settings: {} }, w)) }];
+// 휴대폰 첫 화면: 한 줄로 쌓이므로 순서대로 y만 늘린다
+const column = list => { let y = 0; return list.map((w, i) => { const o = Object.assign({ id: "m" + (i + 1), x: 0, y, w: 5, settings: {} }, w); y += o.h; return o; }); };
+const DEFAULT_MOBILE_VIEWS = [
+  { id: "today", name: "오늘", widgets: column([{ type: "widget-summary", h: 4 }, { type: "widget-categories", h: 5 }, { type: "widget-top-apps", h: 5 }, { type: "widget-hourly", h: 4 }, { type: "widget-location", h: 5 }, { type: "widget-media", h: 4 }]) },
+  { id: "health", name: "건강", widgets: column([{ type: "widget-shealth", h: 4 }, { type: "widget-sleep", h: 5 }, { type: "widget-steps", h: 4 }, { type: "widget-heart-rate", h: 4 }, { type: "widget-activity", h: 3 }, { type: "widget-energy-score", h: 4 }]) },
+];
 
 function dayRange(offset) {
   const [h, m] = settings.day_start.split(":").map(Number);
@@ -166,18 +177,22 @@ async function load() {
   const view = currentView();
   if (!view) { main.innerHTML = '<div class="empty">뷰가 없습니다. 편집에서 뷰를 추가하세요.</div>'; return; }
   const u = gridUnits();
-  const grid = document.createElement("div"); grid.className = "board";
-  fitBoard(grid, view, u);
-  view.widgets.forEach((w, i) => {
-    const card = document.createElement("section"); card.className = "widget"; applyRect(card, w, u);
+  const grid = document.createElement("div"); grid.className = "board" + (mobile ? " column" : "");
+  if (!mobile) fitBoard(grid, view, u);
+  const order = mobile ? mobileOrder(view) : view.widgets;
+  order.forEach(w => {
+    const i = view.widgets.indexOf(w);
+    const card = document.createElement("section"); card.className = "widget";
+    if (mobile) card.style.height = size(Math.max(1, w.h || 1), u) + "px"; else applyRect(card, w, u);
     const head = document.createElement("div"); head.className = "whead";
     head.innerHTML = `<span class="wtitle">${esc(widgetTitle(w))}</span>` + (editing ? `<span class="wtools">
+        ${mobile ? '<button data-act="up" title="위로">↑</button><button data-act="down" title="아래로">↓</button><button data-act="shorter" title="낮게">−</button><button data-act="taller" title="높게">+</button>' : ""}
         ${w.type.startsWith("builtin:") ? "" : '<button data-act="settings" title="설정">⚙</button>'}
         <button data-act="remove" title="지우기">✕</button></span>` : "");
     head.querySelectorAll("[data-act]").forEach(b => b.onclick = () => widgetAction(view, i, b.dataset.act));
     const body = document.createElement("div"); body.className = "wbody";
     card.append(head, body); grid.appendChild(card);
-    if (editing) attachEdit(card, head, w, view);
+    if (editing && !mobile) attachEdit(card, head, w, view);
     if (w.type === "builtin:timeline") { body.classList.add("timeline"); renderTimeline(body, { start, end }); return; }
     const p = renderers.find(r => r.id === w.type);
     if (!p) { body.innerHTML = `<div class="empty">설치되지 않은 위젯: ${esc(w.type)}</div>`; return; }
@@ -193,19 +208,20 @@ async function load() {
   main.innerHTML = ""; main.appendChild(grid);
   if (editing) {
     const add = document.createElement("div"); add.className = "addbar";
-    const opts = [{ id: "builtin:timeline", name: "타임라인 (내장)" }, ...renderers.filter(r => r.slot === "card").map(r => ({ id: r.id, name: `${r.name} (${r.id})` }))];
-    add.innerHTML = `<select id="addType">${opts.map(o => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join("")}</select><button id="addWidget">위젯 추가</button>
+    const opts = [{ id: "builtin:timeline", name: "타임라인 (내장)", ok: true }, ...renderers.filter(r => r.slot === "card").map(r => ({ id: r.id, ok: r.supported !== false,
+      name: `${r.name} (${r.id})` + (r.supported === false ? ` · ${platformName(platform)} 미지원` : "") + ((r.requires || []).length ? ` · 필요: ${r.requires.map(x => x.name).join(", ")}` : "") }))];
+    add.innerHTML = `<select id="addType">${opts.map(o => `<option value="${esc(o.id)}" ${o.ok ? "" : "disabled"}>${esc(o.name)}</option>`).join("")}</select><button id="addWidget">위젯 추가</button>
       <span class="spacer"></span><button id="resetView" title="위젯 목록과 크기를 기본값으로">뷰 초기화</button><button id="renameView">뷰 이름</button><button id="deleteView">뷰 지우기</button>`;
     main.appendChild(add);
     add.querySelector("#addWidget").onclick = async () => {
       const type = add.querySelector("#addType").value;
       const bottom = view.widgets.reduce((m, x) => Math.max(m, (x.y || 0) + (x.h || 1)), 0);   // 맨 아래 빈 줄에
-      view.widgets.push({ id: uid(), type, x: 0, y: bottom, w: type === "builtin:timeline" ? 20 : 5, h: 5, settings: {} });
+      view.widgets.push({ id: uid(), type, x: 0, y: bottom, w: type === "builtin:timeline" ? 20 : 5, h: mobile ? 4 : 5, settings: {} });
       await saveSettings(); load();
     };
     add.querySelector("#resetView").onclick = async () => {
       if (!confirm(`뷰 "${view.name}"의 위젯을 기본 구성으로 되돌릴까요?`)) return;
-      view.widgets = defaultWidgets();
+      view.widgets = mobile ? JSON.parse(JSON.stringify((DEFAULT_MOBILE_VIEWS.find(v => v.id === view.id) || DEFAULT_MOBILE_VIEWS[0]).widgets)) : defaultWidgets();
       await saveSettings(); load();
     };
     add.querySelector("#renameView").onclick = async () => { const n = prompt("뷰 이름", view.name); if (n) { view.name = n; await saveSettings(); load(); } };
@@ -223,8 +239,21 @@ async function widgetAction(view, i, act) {
   else if (act === "left" && i > 0) { view.widgets.splice(i, 1); view.widgets.splice(i - 1, 0, w); }
   else if (act === "right" && i < view.widgets.length - 1) { view.widgets.splice(i, 1); view.widgets.splice(i + 1, 0, w); }
   else if (act === "settings") { if (!await editWidgetSettings(w)) return; }
+  else if (act === "up" || act === "down") {   // 한 줄 배치: 순서를 바꾸고 y를 위에서부터 다시 매긴다
+    const list = mobileOrder(view), k = list.indexOf(w), j = act === "up" ? k - 1 : k + 1;
+    if (j < 0 || j >= list.length) return;
+    [list[k], list[j]] = [list[j], list[k]]; restack(list);
+  }
+  else if (act === "shorter" || act === "taller") { w.h = Math.max(2, Math.min(12, (w.h || 4) + (act === "taller" ? 1 : -1))); restack(mobileOrder(view)); }
   await saveSettings(); load();
 }
+/** 한 줄 배치의 순서: 위에서 아래(y), 같은 줄이면 왼쪽부터(x). */
+function mobileOrder(view) { return view.widgets.slice().sort((a, b) => (a.y || 0) - (b.y || 0) || (a.x || 0) - (b.x || 0)); }
+function restack(list) { let y = 0; for (const w of list) { w.x = 0; w.y = y; y += w.h || 1; } }
+// 휴대폰에서는 머리줄 버튼을 아이콘으로(이름은 title로)
+const SHORT = { "플러그인": "🧩", "설정": "⚙", "타임라인": "↩", "새로고침": "⟳", "편집": "✎" };
+const setLabel = (el, t) => { if (!el) return; el.textContent = mobile ? (SHORT[t] || t) : t; el.title = t; };
+const platformName = p => ({ windows: "Windows", android: "휴대폰", macos: "macOS", linux: "Linux", ios: "iOS" }[p] || p);
 
 /** 매니페스트 settings 선언으로 작은 폼을 만든다. key가 devices인 list는 등록부의 기기 목록에서 고른다. 저장했으면 true. */
 async function editWidgetSettings(w) {
@@ -367,10 +396,10 @@ function flattenRuleTree(rules, parent = null) {
   return out;
 }
 function migrateRules() {
-  let changed = false;
+  const changed = [];
   for (const key of ["categories", "phone_categories"]) {
     const rules = settings[key];
-    if (Array.isArray(rules) && rules.some(r => r && r.children && r.children.length)) { settings[key] = flattenRuleTree(rules); changed = true; }
+    if (Array.isArray(rules) && rules.some(r => r && r.children && r.children.length)) { settings[key] = flattenRuleTree(rules); changed.push(key); }
   }
   return changed;
 }
@@ -402,6 +431,7 @@ function renderRules(c, kind) {
     return null;
   };
   c.innerHTML = `<h2>분류 규칙 › ${kind === "pc" ? "컴퓨터" : "휴대폰"}</h2>
+    <p class="${rulesShared ? "mute" : "warn"}">${rulesShared ? "규칙은 DB에 저장되어 모든 기기(컴퓨터·휴대폰 대시보드)가 같이 씁니다." : "DB가 0007 이전 버전이라 규칙이 이 기기에만 저장됩니다. 마이그레이션(tools/db/first-run.ps1 -SkipImport -SkipSetup)을 적용하면 DB로 옮겨집니다."}</p>
     <p class="mute">위에서부터 처음 맞는 규칙을 쓴다. 정규식, 대소문자 무시. 이름에 /를 넣으면 계층("개발/VSCode")이고 위젯은 마지막 조각("VSCode")을 보여 준다. 구체적인 규칙을 위에 둔다. <b>색</b>은 비우면 자동이고, "개발/VSCode"처럼 하위 이름은 "개발"의 색을 물려받는다.
     ${kind === "pc" ? "app은 exe 이름(예: ^msedge\\.exe$), title은 창 제목(예: YouTube)." : "app 칸에 package 이름(예: ^com\\.google\\.android\\.youtube$)."}</p>
     <table class="rules"><thead><tr><th style="width:28px"></th><th>이름</th>${cols.map(x => `<th>${esc(x[1])}</th>`).join("")}<th style="width:170px">색</th><th style="width:90px"></th></tr></thead><tbody>
@@ -428,8 +458,7 @@ function renderRules(c, kind) {
   const saveNow = async () => {
     if (!document.body.contains(c)) return;
     collect();
-    const copy = Object.assign({}, settings, { [key]: pruneRules(R()) });
-    await lifelog.setSettings(copy);
+    await lifelog.setRules(kind === "pc" ? "pc" : "phone", pruneRules(R()));   // 규칙은 DB(모든 기기 공유). 0006 DB면 호스트가 로컬 파일에 쓴다
     load();
     const msg = $("#ruleMsg"); if (msg) { msg.textContent = "저장됨 " + new Date().toLocaleTimeString("ko-KR", { hour12: false }); }
     const um = c.querySelector("#unmatched"); if (um) renderUnmatched(um, kind, R, collect);   // 실제 배열을 넘겨야 "추가"가 거기에 들어간다
@@ -561,18 +590,23 @@ async function renderUnmatched(el, kind, R, collect) {
 
 async function init() {
   try {
+    try { platform = await lifelog.platform(); } catch (_) { platform = "windows"; }
+    mobile = platform === "android" || params.get("mobile") === "1" || matchMedia("(max-width: 700px)").matches;   // ?mobile=1은 개발용
+    document.body.classList.toggle("mobile", mobile);
+    for (const [id, t] of [["edit", "편집"], ["settings", "설정"], ["plugins", "플러그인"], ["reload", "새로고침"]]) setLabel($("#" + id), t);
     settings = Object.assign(settings, await lifelog.settings());
-    if (!Array.isArray(settings.views) || settings.views.length === 0) { settings.views = JSON.parse(JSON.stringify(DEFAULT_VIEWS)); await saveSettings(); }
+    rulesShared = !!settings.rules_shared;
+    if (!Array.isArray(settings.views) || settings.views.length === 0) { settings.views = JSON.parse(JSON.stringify(platform === "android" ? DEFAULT_MOBILE_VIEWS : DEFAULT_VIEWS)); await saveSettings(); }
     if (!Array.isArray(settings.categories)) settings.categories = [];
     if (!Array.isArray(settings.phone_categories)) settings.phone_categories = [];
     if (settings.views.map(migrateView).some(Boolean)) await saveSettings();
-    if (migrateRules()) await saveSettings();   // 옛 자식 규칙을 부모 밖으로
+    for (const key of migrateRules()) await lifelog.setRules(key === "categories" ? "pc" : "phone", pruneRules(settings[key]));   // 옛 자식 규칙을 부모 밖으로
     if (!settings.grid || !settings.grid.cell) { settings.grid = { cell: 60, gap: 10 }; await saveSettings(); }
     applyTheme();
     if (!viewId) viewId = settings.views[0].id;
     outputs = await lifelog.outputs();
     renderers = await lifelog.renderers();
-    $("#info").textContent = `기기 ${await lifelog.device()}`;
+    $("#info").textContent = `기기 ${await lifelog.device()}` + (mobile ? "" : ` · ${platformName(platform)}`);
     await load();
   } catch (e) {
     $("#main").innerHTML = `<div class="empty">오류: ${esc(e.message)}</div>`;
@@ -583,8 +617,8 @@ function showPage(name) {
   if (name === "main" && $("#main").style.display !== "none") return;
   if (name !== "settingsPage" && pendingSave) flushSave();   // 설정 페이지를 떠나면 미뤄 둔 저장을 바로
   for (const id of ["main", "pluginsPage", "settingsPage"]) $("#" + id).style.display = id === name ? "block" : "none";
-  $("#plugins").textContent = name === "pluginsPage" ? "타임라인" : "플러그인";
-  $("#settings").textContent = name === "settingsPage" ? "타임라인" : "설정";
+  setLabel($("#plugins"), name === "pluginsPage" ? "타임라인" : "플러그인");
+  setLabel($("#settings"), name === "settingsPage" ? "타임라인" : "설정");
   if (name === "settingsPage") renderSettingsPage();
 }
 window.showPage = showPage;
@@ -599,7 +633,7 @@ window.addEventListener("message", e => {
   const d = e.data;
   if (d && d.lifelog === "navigate" && d.range) { /* 플러그인의 이동 요청은 아직 날짜 단위만 */ }
 });
-document.addEventListener("mousemove", e => {
+if (!matchMedia("(pointer: coarse)").matches) document.addEventListener("mousemove", e => {
   const t = e.target.closest("[data-tip]"); const tip = $("#tip");
   if (!t) { tip.style.display = "none"; return; }
   tip.textContent = t.dataset.tip; tip.style.display = "block";

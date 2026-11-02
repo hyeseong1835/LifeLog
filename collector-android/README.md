@@ -52,6 +52,15 @@ health 지표: steps(시간별 `hourly`)·steps/distance/active_kcal/total_kcal/
 
 삼성 헬스 SDK 지표(`read:shealth`가 있을 때, `shealth_metrics` 설정. 비우면 Health Connect에 없는 것만): energy_score·active_time·sh_active_kcal·sh_total_kcal·sh_distance·sh_steps·sh_floors·water·nutrition_kcal(일별 `daily`), sleep_score·sh_sleep(구간, extra.stages_min/score)·sh_sleep_stage·sh_exercise(category 제목, extra.type/distance_m)·nutrition(category 끼니, extra 영양소), skin_temperature·sh_heart_rate·sh_spo2·blood_pressure(extra diastolic/mean/pulse)·blood_glucose·body_composition(값 kg, extra 체지방 등)·sh_body_temp·sleep_apnea·irregular_heart_rhythm(시점), steps_goal·active_kcal_goal·active_time_goal·water_goal·sleep_goal·nutrition_goal(일별 `goal`). Health Connect와 겹치는 지표는 `sh_`를 붙여 따로 저장한다. SDK 1.1.0에는 **스트레스 타입이 없다**(스트레스 위젯은 비어 있다).
 
+## 휴대폰 대시보드
+같은 APK에 아이콘 **LifeLog 대시보드**가 하나 더 생긴다. 컴퓨터 대시보드와 같은 셸·같은 위젯 플러그인을 WebView로 띄우고(위젯은 세로 한 줄), 수집기의 DB 연결을 같이 쓴다. 위젯 배치·설정은 이 폰에만 저장되고, 분류 규칙은 DB(0007)에서 모든 기기가 같이 쓴다.
+```
+dashboard/DashboardActivity.kt  WebView, 가상 호스트(app.lifelog·plugin-<id>.lifelog), HTML에 bridge.js 주입, 웹 메시지 리스너 LifeLogHost
+dashboard/DashboardBridge.kt    렌더러 호스트 API(Windows Bridge.cs와 같은 메서드), 내장 위젯 설치·등록
+core/Query.kt                   query → SQL (Windows Query.cs와 같은 규칙). 시험: gradlew testDebugUnitTest --tests *QueryTest* (로컬 Docker DB)
+```
+개발용: `adb shell am start -n dev.hyeseong.lifelog.collector/.dashboard.DashboardActivity --ei offset -1` (하루 전), `--es page settings`.
+
 ## 아직 없는 것
 - Health Connect 변경 토큰 읽기(지금은 시간 범위 재읽기).
 - QR로 설정 받기.

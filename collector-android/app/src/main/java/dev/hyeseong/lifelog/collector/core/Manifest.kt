@@ -15,6 +15,11 @@ class Manifest(val raw: String) {
     val capabilities: List<Pair<String, Boolean>> = json.optJSONArray("capabilities").toList().map { it.getString("id") to it.optBoolean("required", false) }
     val outputs: List<Output> = json.optJSONArray("outputs").toList().map { Output(it) }
     val settingDecls: List<JSONObject> = json.optJSONArray("settings").toList() + json.optJSONArray("privacy").toList()
+    /** 도는 플랫폼(0007). 비어 있으면 가리지 않음 */
+    val platforms: List<String> = json.optJSONArray("platforms")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
+    /** 앱 밖에서 따로 설치해야 하는 것(0007) */
+    val requires: List<JSONObject> = json.optJSONArray("requires").toList()
+    fun supports(platform: String) = platforms.isEmpty() || platform in platforms
 
     class Output(o: JSONObject) {
         val name: String = o.getString("name")

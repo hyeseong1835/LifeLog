@@ -8,7 +8,11 @@ namespace LifeLog.Core;
 public sealed class Db : IAsyncDisposable
 {
     /// <summary>이 앱이 아는 코어 스키마 버전. DB가 더 높으면 쓰기를 멈춘다(Documents/등록 함수.md 4절).</summary>
-    public const int KnownSchemaVersion = 6;
+    public const int KnownSchemaVersion = 7;
+
+    /// <summary>0007부터: 공유 분류 규칙 테이블, 매니페스트 platforms·requires.</summary>
+    public const int RulesSchemaVersion = 7;
+    private int? _schema;
 
     private readonly NpgsqlDataSource _ds;
     public TimeSpan ClockOffset { get; private set; }   // DB now() - 로컬 now
@@ -22,8 +26,13 @@ public sealed class Db : IAsyncDisposable
     public async Task<int> SchemaVersionAsync(CancellationToken ct = default)
     {
         await using var cmd = _ds.CreateCommand("SELECT COALESCE(max(version), 0) FROM lifelog.schema_migrations");
-        return Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
+        var v = Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
+        _schema = v;
+        return v;
     }
+
+    /// <summary>처음 한 번만 DB에 묻고 기억한다.</summary>
+    public async Task<int> CachedSchemaAsync(CancellationToken ct = default) => _schema ?? await SchemaVersionAsync(ct);
 
     public async Task SyncClockAsync(CancellationToken ct = default)
     {
@@ -39,8 +48,16 @@ public sealed class Db : IAsyncDisposable
 
     public async Task<JsonElement> RegisterPluginAsync(Manifest m, string device, CancellationToken ct = default)
     {
+        // 0006 DB는 platforms·requires를 모른다. 두 키를 빼고 등록하고, 0007이 적용되면 같은 버전으로 다시 등록할 때 채워진다
+        var raw = m.Raw;
+        if (await CachedSchemaAsync(ct) < RulesSchemaVersion)
+        {
+            var node = System.Text.Json.Nodes.JsonNode.Parse(raw)!.AsObject();
+            node.Remove("platforms"); node.Remove("requires");
+            raw = node.ToJsonString();
+        }
         await using var cmd = _ds.CreateCommand("SELECT lifelog.register_plugin($1::jsonb, $2)");
-        cmd.Parameters.Add(new NpgsqlParameter { Value = m.Raw, NpgsqlDbType = NpgsqlDbType.Jsonb });
+        cmd.Parameters.Add(new NpgsqlParameter { Value = raw, NpgsqlDbType = NpgsqlDbType.Jsonb });
         cmd.Parameters.Add(new NpgsqlParameter { Value = device });
         var s = (string)(await cmd.ExecuteScalarAsync(ct))!;
         return JsonDocument.Parse(s).RootElement.Clone();
@@ -154,12 +171,34 @@ public sealed class Db : IAsyncDisposable
   'plugins', (SELECT COALESCE(json_agg(json_build_object(
       'id', p.id, 'type', p.type, 'latest_version', p.latest_version, 'source_url', p.source_url,
       'name', (SELECT v.manifest->>'name' FROM lifelog.plugin_versions v WHERE v.plugin_id = p.id AND v.version = p.latest_version),
+      'platforms', (SELECT v.manifest->'platforms' FROM lifelog.plugin_versions v WHERE v.plugin_id = p.id AND v.version = p.latest_version),
+      'requires', (SELECT v.manifest->'requires' FROM lifelog.plugin_versions v WHERE v.plugin_id = p.id AND v.version = p.latest_version),
       'installs', (SELECT COALESCE(json_agg(json_build_object('device', i.device, 'version', i.installed_version, 'enabled', i.enabled, 'granted', i.granted, 'unmet', i.unmet, 'last_seen', i.last_seen) ORDER BY i.device), '[]'::json) FROM lifelog.plugin_installs i WHERE i.plugin_id = p.id),
       'tables', (SELECT COALESCE(json_agg(t.table_name ORDER BY t.table_name), '[]'::json) FROM lifelog.collector_tables t WHERE t.plugin_id = p.id)
     ) ORDER BY p.id), '[]'::json) FROM lifelog.plugins p))::text";
         await using var cmd = _ds.CreateCommand(sql);
         var json = (string)(await cmd.ExecuteScalarAsync(ct))!;
         return JsonDocument.Parse(json).RootElement.Clone();
+    }
+
+    /// <summary>공유 분류 규칙(0007). { pc: [...], phone: [...] }. 0006 DB면 null(호출자가 로컬 파일을 쓴다).</summary>
+    public async Task<JsonElement?> GetCategoryRulesAsync(CancellationToken ct = default)
+    {
+        if (await CachedSchemaAsync(ct) < RulesSchemaVersion) return null;
+        await using var cmd = _ds.CreateCommand(
+            "SELECT json_build_object('pc', (SELECT rules FROM lifelog.category_rules WHERE kind = 'pc'), " +
+            "'phone', (SELECT rules FROM lifelog.category_rules WHERE kind = 'phone'))::text");
+        var json = (string)(await cmd.ExecuteScalarAsync(ct))!;
+        return JsonDocument.Parse(json).RootElement.Clone();
+    }
+
+    /// <summary>규칙 목록 전체를 바꾼다. kind: pc | phone.</summary>
+    public async Task SetCategoryRulesAsync(string kind, string rulesJson, CancellationToken ct = default)
+    {
+        await using var cmd = _ds.CreateCommand("SELECT lifelog.set_category_rules($1, $2::jsonb)");
+        cmd.Parameters.Add(new NpgsqlParameter { Value = kind });
+        cmd.Parameters.Add(new NpgsqlParameter { Value = rulesJson, NpgsqlDbType = NpgsqlDbType.Jsonb });
+        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     public async Task TouchLastSeenAsync(string device, CancellationToken ct = default)

@@ -1,26 +1,62 @@
 {
   "type": "collector",
   "id": "claude-session",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "Claude Code 세션",
   "min_host_version": 1,
-  "runtimes": { "js": "main.js" },
+  "platforms": [
+    "windows"
+  ],
+  "requires": [
+    {
+      "name": "Claude Code",
+      "why": "~/.claude/projects에 남는 세션 기록(jsonl)을 읽는다",
+      "url": "https://claude.com/claude-code",
+      "platforms": [
+        "windows"
+      ]
+    }
+  ],
+  "runtimes": {
+    "js": "main.js"
+  },
   "capabilities": [
-    { "id": "file:read:~/.claude/projects", "required": true },
-    { "id": "timer", "required": true }
+    {
+      "id": "file:read:~/.claude/projects",
+      "required": true
+    },
+    {
+      "id": "timer",
+      "required": true
+    }
   ],
   "outputs": [
     {
       "name": "session",
       "kind": "span",
       "schema_version": 1,
-      "columns": { "session_id": "text", "project": "text", "branch": "text", "turns": "integer", "version": "text" },
+      "columns": {
+        "session_id": "text",
+        "project": "text",
+        "branch": "text",
+        "turns": "integer",
+        "version": "text"
+      },
       "label": "project",
-      "identity": ["session_id"],
-      "index": ["project"]
+      "identity": [
+        "session_id"
+      ],
+      "index": [
+        "project"
+      ]
     }
   ],
   "settings": [
-    { "key": "root", "type": "string", "default": "~/.claude/projects", "label": "세션 로그 폴더" }
+    {
+      "key": "root",
+      "type": "string",
+      "default": "~/.claude/projects",
+      "label": "세션 로그 폴더"
+    }
   ]
 }

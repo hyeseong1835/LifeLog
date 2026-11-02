@@ -1,19 +1,30 @@
 {
   "type": "collector",
   "id": "win-battery",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "배터리·전원 (Windows)",
   "min_host_version": 1,
-  "runtimes": { "js": "main.js" },
+  "platforms": [
+    "windows"
+  ],
+  "runtimes": {
+    "js": "main.js"
+  },
   "capabilities": [
-    { "id": "event:battery", "required": true }
+    {
+      "id": "event:battery",
+      "required": true
+    }
   ],
   "outputs": [
     {
       "name": "battery",
       "kind": "event",
       "schema_version": 1,
-      "columns": { "percent": "integer", "ac": "boolean" },
+      "columns": {
+        "percent": "integer",
+        "ac": "boolean"
+      },
       "label": "percent",
       "identity": []
     }

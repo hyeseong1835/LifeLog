@@ -47,6 +47,15 @@
             </intent-filter>
         </activity>
 
+        <!-- 휴대폰 대시보드: 컴퓨터와 같은 렌더러를 쓰는 별도 아이콘(같은 앱이라 수집기의 DB 연결을 같이 쓴다) -->
+        <activity android:name=".dashboard.DashboardActivity" android:exported="true" android:label="LifeLog 대시보드"
+            android:icon="@android:drawable/ic_menu_gallery" android:taskAffinity="dev.hyeseong.lifelog.dashboard"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
         <service android:name=".CollectorService" android:exported="false" android:foregroundServiceType="location|health|specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="personal activity logging to the user's own database" />
         </service>

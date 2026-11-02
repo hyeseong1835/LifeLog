@@ -6,6 +6,7 @@
   let open = false, device = "";
   const fmt = t => t ? new Date(t).toLocaleString("ko-KR", { hour12: false }) : "—";
   const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const PLAT = { windows: "Windows", android: "휴대폰", macos: "macOS", linux: "Linux", ios: "iOS" };
 
   async function render() {
     page.innerHTML = '<div class="empty">불러오는 중…</div>';
@@ -16,11 +17,13 @@
       let html = `<div class="row"><input id="src" placeholder="GitHub URL (https://github.com/소유자/저장소[/tree/브랜치/폴더]) · 폴더 경로 · zip 경로" size="72">` +
         `<button id="installSrc">설치</button><button id="installDir">폴더 고르기…</button><span id="installMsg" class="mute"></span></div>` +
         `<p class="mute">설치·켜기는 이 기기(${esc(device)})에만 적용됩니다. 다른 기기는 그 기기의 앱에서 같은 출처로 설치합니다. 지금은 권한을 전부 허용하고 켭니다.</p>` +
-        `<table class="plugins"><thead><tr><th>플러그인</th><th>종류</th><th>최신</th>` +
+        `<table class="plugins"><thead><tr><th>플러그인</th><th>종류</th><th>최신</th><th>플랫폼 · 따로 필요한 것</th>` +
         devices.map(d => `<th>${esc(d.name)}<br><span class="mute">${esc(d.id)}</span></th>`).join("") + `<th>출처</th></tr></thead><tbody>`;
       for (const p of reg.plugins) {
         html += `<tr><td><b>${esc(p.name || p.id)}</b><br><span class="mute">${esc(p.id)}</span>` +
-          (p.tables.length ? `<br><span class="mute">${p.tables.map(esc).join(", ")}</span>` : "") + `</td><td>${esc(p.type)}</td><td>${esc(p.latest_version)}</td>`;
+          (p.tables.length ? `<br><span class="mute">${p.tables.map(esc).join(", ")}</span>` : "") + `</td><td>${esc(p.type)}</td><td>${esc(p.latest_version)}</td>` +
+          `<td>${(p.platforms || []).length ? p.platforms.map(x => `<span class="plat">${esc(PLAT[x] || x)}</span>`).join("") : '<span class="mute">가리지 않음</span>'}` +
+          ((p.requires || []).map(r => `<div class="req" title="${esc(r.url || "")}">· ${esc(r.name)}${r.why ? ` <span class="mute">${esc(r.why)}</span>` : ""}</div>`).join("")) + `</td>`;
         for (const d of devices) {
           const i = p.installs.find(x => x.device === d.id);
           if (!i) { html += `<td class="mute">—</td>`; continue; }

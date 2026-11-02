@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<style>
+  :root { --fg:#ddd; --mute:#888; --line:#2a2a2a; --tile:#1f1f22; color-scheme: dark; }
+  :root[data-theme="light"] { --fg:#1c1c1e; --mute:#6b6b70; --line:#dcdce0; --tile:#f2f2f5; color-scheme: light; }
+  html, body { height:100%; }
+  body { margin:0; padding:8px 12px 6px; font: 11px/1.3 "Segoe UI Variable", "Segoe UI", sans-serif; color:var(--fg); background:transparent; overflow:hidden; box-sizing:border-box; }
+  #root { display:flex; flex-direction:column; height:100%; gap:4px; }
+  #root.msg { display:block; color:var(--mute); }
+  .head { display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; flex:none; }
+  .head b { font-size:22px; font-weight:600; }
+  .head .u { font-size:11px; color:var(--mute); margin-left:2px; font-weight:400; }
+  .mute { color:var(--mute); }
+  .chart { flex:1; min-height:40px; position:relative; }
+  .chart svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+  text { fill:var(--mute); font-size:10px; }
+  .list { overflow:auto; flex:1; min-height:0; }
+  .row { display:flex; justify-content:space-between; gap:8px; padding:4px 0; border-top:1px solid var(--line); }
+  .row .r { text-align:right; white-space:nowrap; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fill, minmax(92px, 1fr)); gap:6px; }
+  .tile { background:var(--tile); border-radius:8px; padding:6px 8px; }
+  .tile .k { color:var(--mute); font-size:10px; }
+  .tile .v { font-size:16px; font-weight:600; }
+  .tile .v small { font-size:10px; font-weight:400; color:var(--mute); margin-left:2px; }
+  .tile .s { color:var(--mute); font-size:10px; }
+  .bar { height:5px; background:var(--line); border-radius:3px; overflow:hidden; margin-top:4px; }
+  .bar i { display:block; height:100%; border-radius:3px; }
+  .legend { display:flex; gap:10px; flex-wrap:wrap; flex:none; }
+  .legend i { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:4px; vertical-align:middle; }
+</style></head>
+<body><div id="root" class="msg">불러오는 중…</div>
+<script src="https://app.lifelog/sdk.js"></script>
+<script>
+// 혈압(삼성 헬스 SDK blood_pressure = 수축기, blood_pressure.diastolic = 이완기, blood_pressure.pulse = 맥박). 최근 값과 기간 그래프(세로 막대 = 이완기~수축기).
+const S = LifeLogSdk, C = S.chart;
+const $root = document.getElementById("root");
+const msg = (t, sub) => { $root.className = "msg"; $root.innerHTML = S.esc(t) + (sub ? `<br><span class="mute">${S.esc(sub)}</span>` : ""); };
+const own = (rows, st) => st.device ? rows.filter(r => r.device === st.device) : rows;
+const q = async (view, opts) => (await lifelog.query(view, opts)).rows;
+const r1 = x => Math.round(x * 10) / 10;
+const num = x => Math.round(x).toLocaleString("ko-KR");
+const layout = (parts) => { $root.className = ""; $root.innerHTML = parts; };
+/** 여러 날 시점 값을 날짜 축에 찍는다. series: [{ metric, color, name }] */
+async function trend(range, st, n, metrics) {
+  const win = S.daysBack(range, n);
+  const rows = own(await q("health/point", { range: win, where: { metric: metrics }, limit: 20000 }), st).filter(r => r.value != null).sort((a, b) => S.ms(a.time) - S.ms(b.time));
+  return { rows, S0: S.ms(win.start), E0: S.ms(win.end) };
+}
+function dayAxis(svg, S0, E0, X, W, H, L) {
+  const n = Math.round((E0 - S0) / 86400e3), step = Math.max(1, Math.ceil(n / 6));
+  for (let d = n; d >= 0; d -= step) { const ms = E0 - d * 86400e3; svg.push(`<text x="${Math.min(W - 14, Math.max(L + 12, X(ms))).toFixed(1)}" y="${H - 3}" text-anchor="middle">${C.md(ms - 1)}</text>`); }
+}
+
+lifelog.ready(async (range, widget) => {
+  const st = widget.settings || {}, n = Math.max(3, Math.min(365, Number(st.days) || 30));
+  let t;
+  try { t = await trend(range, st, n, ["blood_pressure", "blood_pressure.diastolic", "blood_pressure.pulse"]); }
+  catch (e) { return msg("읽기 실패: " + e.message); }
+  const sys = t.rows.filter(r => r.metric === "blood_pressure");
+  if (!sys.length) return msg("혈압 기록 없음", `최근 ${n}일`);
+  const at = (m, time) => t.rows.find(r => r.metric === m && S.ms(r.time) === S.ms(time));
+  const meas = sys.map(r => ({ time: r.time, sys: r.value, dia: at("blood_pressure.diastolic", r.time)?.value, pulse: at("blood_pressure.pulse", r.time)?.value }));
+  const last = meas[meas.length - 1];
+  const level = (s, d) => s >= 140 || d >= 90 ? ["높음", "#e57373"] : s >= 120 || d >= 80 ? ["주의", "#f0a35e"] : ["정상", "#4caf50"];
+  const [lv, lc] = level(last.sys, last.dia ?? 0);
+  layout('<div class="head"></div><div class="chart"></div>');
+  $root.querySelector(".head").innerHTML = `<b>${Math.round(last.sys)}/${last.dia != null ? Math.round(last.dia) : "–"}</b><span class="u">mmHg</span><span style="color:${lc}">${lv}</span><span class="mute">${C.md(last.time)} ${S.fmtTime(last.time)}${last.pulse != null ? ` · 맥박 ${Math.round(last.pulse)}` : ""} · ${meas.length}회</span>`;
+  const el = $root.querySelector(".chart"), { W, H } = C.size(el), L = 28, R = 4, T = 6, B = 16, ph = H - T - B;
+  const X = C.scale(t.S0, t.E0, L + 4, W - R - 4), Y = C.scale(50, 180, T + ph, T);
+  const svg = [`<svg viewBox="0 0 ${W} ${H}">`];
+  for (const v of [80, 120, 140]) svg.push(`<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)" stroke-dasharray="2 3"/><text x="${L - 4}" y="${Y(v) + 3}" text-anchor="end">${v}</text>`);
+  for (const m of meas) {
+    const x = X(S.ms(m.time)), c = level(m.sys, m.dia ?? 0)[1];
+    if (m.dia != null) svg.push(`<line x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${Y(m.sys).toFixed(1)}" y2="${Y(m.dia).toFixed(1)}" stroke="${c}" stroke-width="4" stroke-linecap="round"><title>${C.md(m.time)} ${Math.round(m.sys)}/${Math.round(m.dia)}</title></line>`);
+    else svg.push(`<circle cx="${x.toFixed(1)}" cy="${Y(m.sys).toFixed(1)}" r="3" fill="${c}"/>`);
+  }
+  dayAxis(svg, t.S0, t.E0, X, W, H, L);
+  el.innerHTML = svg.join("") + "</svg>";
+});
+</script></body></html>

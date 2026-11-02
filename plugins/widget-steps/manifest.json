@@ -1,0 +1,32 @@
+{
+  "type": "renderer",
+  "id": "widget-steps",
+  "version": "1.0.0",
+  "name": "걸음",
+  "min_host_version": 1,
+  "platforms": [
+    "windows",
+    "android"
+  ],
+  "runtimes": {
+    "webview": "index.html"
+  },
+  "slot": "card",
+  "inputs": [
+    "health/span@1"
+  ],
+  "settings": [
+    {
+      "key": "device",
+      "type": "string",
+      "default": "",
+      "label": "기기 id (비우면 전부)"
+    },
+    {
+      "key": "goal",
+      "type": "number",
+      "default": 0,
+      "label": "목표 걸음(0이면 삼성 헬스 목표, 없으면 6000)"
+    }
+  ]
+}

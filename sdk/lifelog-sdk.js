@@ -156,5 +156,39 @@
     return root;
   }
 
-  g.LifeLogSdk = { categorize, categoryColor, categoryTree, useRuleColors, leafName, UNCATEGORIZED, clip, subtract, merge, sumMs, groupSum, bucketHours, pairEvents, matchRules, fmtDur, fmtTime, hashColor, esc, activeWindows, ms: t };
+  // ---- 차트 도우미(건강 위젯 등). SVG 문자열을 만든다. 색은 호출자가 정한다. ----
+  const chart = {
+    /** 요소의 그릴 수 있는 크기. 아직 배치 전이면 최소값. */
+    size(el, minW = 160, minH = 80) { return { W: Math.max(minW, el.clientWidth || 0), H: Math.max(minH, el.clientHeight || 0) }; },
+    /** [a, b] → [c, d] 선형 변환 */
+    scale(a, b, c, d) { const k = b === a ? 0 : (d - c) / (b - a); return v => c + (v - a) * k; },
+    /** 값 범위를 보기 좋게 넓힌다(눈금 단위 step으로 내림·올림). */
+    nice(lo, hi, step) { if (!isFinite(lo) || !isFinite(hi)) return [0, 1]; if (lo === hi) { lo -= step; hi += step; } return [Math.floor(lo / step) * step, Math.ceil(hi / step) * step]; },
+    /** 시각 라벨: 자정 / 오전 n / 오후 n */
+    ampm(d) { const h = new Date(t(d)).getHours(); return h === 0 ? "자정" : h < 12 ? "오전 " + h : h === 12 ? "정오" : "오후 " + (h - 12); },
+    /** 날짜 라벨 M/D */
+    md(d) { d = new Date(t(d)); return `${d.getMonth() + 1}/${d.getDate()}`; },
+    /** S0~E0를 step시간마다 나눈 눈금 [{ t, x }] */
+    hourTicks(S0, E0, X, step = 6) { const out = []; for (let ms = t(S0); ms <= t(E0) + 1; ms += step * 3600e3) out.push({ t: ms, x: X(ms) }); return out; },
+    /** [{x, y}] → 꺾은선 path d */
+    line(pts) { return pts.map((p, i) => (i ? "L" : "M") + p.x.toFixed(1) + "," + p.y.toFixed(1)).join(""); },
+    /** 원호 진행 고리(0~1) */
+    ring(cx, cy, r, frac, color, track = "var(--line)", width = 8) {
+      const f = Math.max(0, Math.min(0.9999, frac)), a = -Math.PI / 2 + f * 2 * Math.PI, x = cx + r * Math.cos(a), y = cy + r * Math.sin(a);
+      return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${track}" stroke-width="${width}"/>` +
+        (f > 0 ? `<path d="M${cx},${cy - r} A${r},${r} 0 ${f > 0.5 ? 1 : 0} 1 ${x.toFixed(1)},${y.toFixed(1)}" fill="none" stroke="${color}" stroke-width="${width}" stroke-linecap="round"/>` : "");
+    },
+  };
+  /** 하루 범위 끝에서 n일 전까지(트렌드 위젯용). { start, end } ISO */
+  function daysBack(range, n) { const E = t(range.end); return { start: new Date(E - n * 86400e3).toISOString(), end: new Date(E).toISOString() }; }
+  /** 같은 지표의 행 중 값이 있는 마지막 것(시각 키: time 또는 start) */
+  function latest(rows, metric, cat) {
+    let best = null;
+    for (const r of rows) if (r.metric === metric && r.value != null && (!cat || r.category === cat)) { const k = t(r.time ?? r.start); if (!best || k >= t(best.time ?? best.start)) best = r; }
+    return best;
+  }
+  /** jsonb extra(문자열이거나 객체) → 객체 */
+  const extraOf = r => { const x = r && r.extra; if (!x) return {}; if (typeof x === "string") { try { return JSON.parse(x); } catch (_) { return {}; } } return x; };
+
+  g.LifeLogSdk = { chart, daysBack, latest, extraOf, categorize, categoryColor, categoryTree, useRuleColors, leafName, UNCATEGORIZED, clip, subtract, merge, sumMs, groupSum, bucketHours, pairEvents, matchRules, fmtDur, fmtTime, hashColor, esc, activeWindows, ms: t };
 })(typeof window !== "undefined" ? window : globalThis);

@@ -1,9 +1,20 @@
 {
   "type": "renderer",
   "id": "widget-location",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "name": "위치",
   "min_host_version": 1,
+  "platforms": [
+    "windows",
+    "android"
+  ],
+  "requires": [
+    {
+      "name": "인터넷 (OpenStreetMap 타일)",
+      "why": "배경 지도를 내려받는다. 위젯 설정에서 지도를 끄면 필요 없다",
+      "url": "https://www.openstreetmap.org/copyright"
+    }
+  ],
   "runtimes": {
     "webview": "index.html"
   },

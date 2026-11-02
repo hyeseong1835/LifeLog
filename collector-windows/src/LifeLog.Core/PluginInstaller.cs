@@ -88,6 +88,7 @@ public static class PluginInstaller
         var src = await FetchAsync(source, ct);
         var m = Manifest.Load(Path.Combine(src, "manifest.json"));
         if (expectType is not null && m.Type != expectType) throw new InvalidOperationException($"{expectType} 매니페스트가 아닙니다: {m.Type}");
+        if (!m.Supports("windows")) throw new InvalidOperationException($"{m.Id}는 windows를 지원하지 않습니다(platforms: {string.Join(", ", m.Platforms!)})");
         var dest = Path.Combine(pluginsDir, m.Id);
         if (Directory.Exists(dest)) Directory.Delete(dest, true);
         Directory.CreateDirectory(dest);

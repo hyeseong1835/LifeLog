@@ -2,6 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>LifeLog</title>
 <style>
   :root { --bg:#111; --fg:#ddd; --mute:#888; --line:#2a2a2a; --accent:#6cf; --card:#181818; --btn:#222; --btn-border:#333; --btn-hover:#2c2c2c; --on:#2a3f55; --input:#1a1a1a; --tip-bg:#000; --tip-fg:#fff; --block-fg:#000; color-scheme: dark; }
@@ -97,6 +98,29 @@
   dialog .checks { display:flex; flex-direction:column; gap:4px; }
   dialog .chk { display:flex; justify-content:flex-start; gap:6px; margin:0; }
   dialog .row { display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
+  .plat { display:inline-block; padding:0 5px; margin:1px 2px 1px 0; border-radius:8px; font-size:11px; border:1px solid var(--btn-border); color:var(--mute); }
+  .req { font-size:11px; }
+  /* 휴대폰(한 줄 배치): 위젯을 세로로 쌓고, 머리줄·설정 사이드바를 좁은 화면에 맞춘다 */
+  .board.column { display:flex; flex-direction:column; gap:10px; }
+  .board.column .widget { position:relative; width:100%; }
+  body.mobile { font-size:14px; }
+  body.mobile header { padding:6px 8px; gap:6px; }
+  body.mobile header h1, body.mobile #info { display:none; }
+  body.mobile .date { min-width:0; font-size:12px; }
+  body.mobile #tabs { order:10; width:100%; margin-left:0; overflow-x:auto; flex-wrap:nowrap; padding-bottom:2px; }
+  body.mobile .tab { flex:none; }
+  body.mobile main { padding:8px 8px 48px; }
+  body.mobile .wtools button { padding:3px 8px; font-size:13px; }
+  body.mobile .addbar { flex-wrap:wrap; }
+  body.mobile .addbar select { max-width:100%; }
+  body.mobile .settings { flex-direction:column; min-height:0; }
+  body.mobile .settings .side { width:auto; flex-direction:row; overflow-x:auto; border-right:0; border-bottom:1px solid var(--line); padding:6px; }
+  body.mobile .settings .side .group { display:none; }
+  body.mobile .settings .side .item { flex:none; }
+  body.mobile .settings .content { padding:10px; }
+  body.mobile table.rules, body.mobile table.plugins, body.mobile table.unmatched { display:block; overflow-x:auto; }
+  body.mobile #src { width:100%; }
+  body.mobile dialog { min-width:0; width:92vw; }
 </style>
 </head>
 <body>

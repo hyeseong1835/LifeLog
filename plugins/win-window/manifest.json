@@ -1,9 +1,12 @@
 {
   "type": "collector",
   "id": "win-window",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "포커스 창",
   "min_host_version": 1,
+  "platforms": [
+    "windows"
+  ],
   "runtimes": {
     "js": "main.js"
   },

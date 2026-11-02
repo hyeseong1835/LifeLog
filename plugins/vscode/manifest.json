@@ -1,23 +1,53 @@
 {
   "type": "collector",
   "id": "vscode",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "VS Code 편집",
   "min_host_version": 1,
-  "runtimes": { "js": "main.js" },
+  "platforms": [
+    "windows"
+  ],
+  "requires": [
+    {
+      "name": "VS Code + LifeLog 확장",
+      "why": "확장이 편집 중인 파일을 %LOCALAPPDATA%/LifeLog/vscode에 남기고 이 수집기가 읽는다(collector-vscode/install.ps1)",
+      "url": "https://github.com/hyeseong1835/LifeLog/tree/main/collector-vscode",
+      "platforms": [
+        "windows"
+      ]
+    }
+  ],
+  "runtimes": {
+    "js": "main.js"
+  },
   "capabilities": [
-    { "id": "file:read:%LOCALAPPDATA%/LifeLog/vscode", "required": true },
-    { "id": "timer", "required": true }
+    {
+      "id": "file:read:%LOCALAPPDATA%/LifeLog/vscode",
+      "required": true
+    },
+    {
+      "id": "timer",
+      "required": true
+    }
   ],
   "outputs": [
     {
       "name": "editor",
       "kind": "span",
       "schema_version": 1,
-      "columns": { "project": "text", "file": "text", "language": "text" },
+      "columns": {
+        "project": "text",
+        "file": "text",
+        "language": "text"
+      },
       "label": "file",
-      "identity": ["project", "file"],
-      "index": ["project"]
+      "identity": [
+        "project",
+        "file"
+      ],
+      "index": [
+        "project"
+      ]
     }
   ]
 }

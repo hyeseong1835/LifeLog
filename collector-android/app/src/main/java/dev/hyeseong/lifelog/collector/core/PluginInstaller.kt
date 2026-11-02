@@ -62,14 +62,15 @@ object PluginInstaller {
         throw IllegalStateException(if (found.isEmpty()) "manifest.json이 없습니다" else "manifest.json이 여럿입니다. URL 뒤에 /tree/<브랜치>/<폴더>를 붙이세요")
     }
 
-    fun install(db: Db, device: String, pluginsDir: File, source: String, grantAll: Boolean, cacheDir: File): Result {
+    fun install(db: Db, device: String, pluginsDir: File, source: String, grantAll: Boolean, cacheDir: File, expectType: String = "collector"): Result {
         val (zipUrl, sub) = resolveUrl(source)
         val tmp = File(cacheDir, "plugin-" + System.nanoTime()).apply { mkdirs() }
         try {
             download(zipUrl, tmp)
             val src = findManifestDir(tmp, sub)
             val m = Manifest.load(src)
-            if (m.type != "collector") throw IllegalStateException("수집기 매니페스트가 아닙니다: ${m.type}")
+            if (m.type != expectType) throw IllegalStateException("${if (expectType == "collector") "수집기" else "렌더러"} 매니페스트가 아닙니다: ${m.type}")
+            if (!m.supports("android")) throw IllegalStateException("${m.id}는 휴대폰(android)을 지원하지 않습니다(platforms: ${m.platforms.joinToString()})")
             val dest = File(pluginsDir, m.id)
             dest.deleteRecursively(); dest.mkdirs()
             src.walkTopDown().filter { it.isFile && !it.relativeTo(src).path.startsWith(".git") }.forEach { f ->

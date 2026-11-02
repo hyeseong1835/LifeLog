@@ -1,0 +1,26 @@
+{
+  "type": "renderer",
+  "id": "widget-spo2",
+  "version": "1.0.0",
+  "name": "혈중 산소",
+  "min_host_version": 1,
+  "platforms": [
+    "windows",
+    "android"
+  ],
+  "runtimes": {
+    "webview": "index.html"
+  },
+  "slot": "card",
+  "inputs": [
+    "health/point@1"
+  ],
+  "settings": [
+    {
+      "key": "device",
+      "type": "string",
+      "default": "",
+      "label": "기기 id (비우면 전부)"
+    }
+  ]
+}

@@ -6,6 +6,10 @@ LifeLog 코어 스키마. 설계 근거는 `Documents/`(로컬 전용)의 테이
 migrations/0001_core.sql       스키마 lifelog, 롤(lifelog_devices 그룹, lifelog_reader), 등록부 7개, RLS, updated_at 트리거, current_device()
 migrations/0002_functions.sql  register_device, revoke_device, register_plugin, set_install, regen_view, 검증 유틸
 migrations/0003_reset_device_password.sql  reset_device_password (관리자. 기기 비밀번호 재발급)
+migrations/0004_search_path.sql            SECURITY DEFINER 함수의 search_path 고정
+migrations/0005_register_device_existing_role.sql  이미 있는 기기 롤로 다시 등록
+migrations/0006_plugin_source.sql          plugins.source_url, set_plugin_source (URL 설치 출처)
+migrations/0007_category_rules_platforms.sql  공유 분류 규칙 category_rules·set_category_rules, 매니페스트 platforms·requires(register_plugin을 감쌈)
 ```
 
 ## 규칙

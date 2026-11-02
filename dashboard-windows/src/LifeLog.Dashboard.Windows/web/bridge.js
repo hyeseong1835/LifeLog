@@ -1,8 +1,13 @@
 // lifelog 브리지. 모든 문서(셸과 플러그인 iframe)에 주입된다.
-// 최상위(셸)는 chrome.webview로 호스트와 직접 통신하고, iframe(플러그인)은 부모(셸)에 중계를 맡긴다.
+// 최상위(셸)는 호스트와 직접 통신하고, iframe(플러그인)은 부모(셸)에 중계를 맡긴다.
+// 호스트: Windows는 WebView2(chrome.webview), Android는 WebView의 웹 메시지 리스너(LifeLogHost, app.lifelog 출처에서만 보인다).
 (function () {
   if (window.lifelog) return;
   const isTop = window === window.top;
+  const host = !isTop ? null
+    : window.chrome && window.chrome.webview ? { post: m => chrome.webview.postMessage(m), listen: fn => chrome.webview.addEventListener("message", e => fn(e.data)) }
+    : window.LifeLogHost ? { post: m => LifeLogHost.postMessage(JSON.stringify(m)), listen: fn => LifeLogHost.addEventListener("message", e => fn(typeof e.data === "string" ? JSON.parse(e.data) : e.data)) }
+    : null;
   const pending = new Map();
   let seq = 0;
   const pluginId = (() => {
@@ -15,7 +20,7 @@
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject });
       const msg = { id, from: pluginId, method, args };
-      if (isTop) chrome.webview.postMessage(msg);
+      if (isTop) { if (!host) return reject(new Error("호스트 없음")); host.post(msg); }
       else window.parent.postMessage({ lifelog: "call", msg }, "*");
     });
   }
@@ -31,9 +36,8 @@
   // 스크립트 오류를 호스트 로그(dashboard.log)로. 플러그인 iframe의 오류는 셸을 거친다
   window.addEventListener("error", e => { try { call("log", `${pluginId} ${location.pathname}: ${e.message} (${e.lineno})`); } catch (_) {} });
   window.addEventListener("unhandledrejection", e => { try { call("log", `${pluginId}: ${e.reason && e.reason.message || e.reason}`); } catch (_) {} });
-  if (isTop) {
-    chrome.webview.addEventListener("message", e => {
-      const reply = e.data;
+  if (isTop && host) {
+    host.listen(reply => {
       if (reply && reply.lifelog === "frameError") {   // 호스트가 알린 iframe 탐색 실패 → 최대 3번 다시 읽기
         for (const f of document.querySelectorAll("iframe")) {
           if (!reply.url || !reply.url.startsWith(f.src.split("?")[0])) continue;
@@ -53,7 +57,7 @@
     window.addEventListener("message", e => {
       const d = e.data;
       if (!d || d.lifelog !== "call") return;
-      chrome.webview.postMessage(d.msg);   // 그대로 호스트로. 권한 검사는 호스트가 from으로 한다
+      host.post(d.msg);   // 그대로 호스트로. 권한 검사는 호스트가 from으로 한다
     });
   } else {
     // 플러그인 문서의 로드·준비 상태를 호스트 로그에 남긴다(문제 추적용)
@@ -80,6 +84,11 @@
     renderers: () => call("renderers"),
     settings: () => call("settings"),
     setSettings: s => call("setSettings", s),
+    /** 분류 규칙 { pc, phone, shared }. shared면 DB(모든 기기 공유) */
+    rules: () => call("rules"),
+    setRules: (kind, rules) => call("setRules", kind, rules),
+    /** 호스트 플랫폼: windows | android */
+    platform: () => call("platform"),
     installPlugin: source => call("installPlugin", source ?? null),
     registry: () => call("registry"),
     setEnabled: (id, on) => call("setEnabled", id, on),

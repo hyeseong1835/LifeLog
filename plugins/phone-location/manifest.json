@@ -1,9 +1,12 @@
 {
   "type": "collector",
   "id": "phone-location",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "위치",
   "min_host_version": 1,
+  "platforms": [
+    "android"
+  ],
   "runtimes": {
     "js": "main.js"
   },

@@ -21,7 +21,8 @@ public sealed class Bridge
     private readonly System.Windows.Window _owner;
     private readonly Dictionary<string, Manifest> _renderers = new();   // id → 매니페스트
     private readonly string _settingsPath = Path.Combine(Config.Dir, "settings.json");
-    public static string PluginsDir => Path.Combine(Config.Dir, "plugins");
+    /// <summary>렌더러 설치 폴더. 개발용 --plugins-dir로 바꿀 수 있다(앱 컨테이너 안에서 시험할 때 WebView2가 읽을 수 있는 곳).</summary>
+    public static string PluginsDir { get; set; } = Path.Combine(Config.Dir, "plugins");
 
     public Bridge(Db db, Config cfg, CoreWebView2 core, System.Windows.Window owner)
     {
@@ -49,9 +50,29 @@ public sealed class Bridge
         }
     }
 
-    private JsonObject LoadSettings()
+    /// <summary>기기 로컬 설정 파일(배치·위젯 설정·테마·하루 시작). 다른 기기와 공유하지 않는다.</summary>
+    private JsonObject LoadLocal() => File.Exists(_settingsPath) ? JsonNode.Parse(File.ReadAllText(_settingsPath))!.AsObject() : new JsonObject();
+
+    // 공유 분류 규칙(DB, 0007). 위젯마다 settings()를 부르므로 잠깐 기억한다
+    private JsonElement? _rules; private DateTime _rulesAt;
+    private async Task<JsonElement?> SharedRulesAsync(bool fresh = false)
     {
-        var o = File.Exists(_settingsPath) ? JsonNode.Parse(File.ReadAllText(_settingsPath))!.AsObject() : new JsonObject();
+        if (!fresh && _rules is not null && DateTime.UtcNow - _rulesAt < TimeSpan.FromSeconds(5)) return _rules;
+        _rules = await _db.GetCategoryRulesAsync(); _rulesAt = DateTime.UtcNow;
+        return _rules;
+    }
+
+    /// <summary>로컬 설정 + 공유 분류 규칙(categories = 컴퓨터, phone_categories = 휴대폰). 0006 DB면 규칙도 로컬 파일 것.</summary>
+    private async Task<JsonObject> LoadSettingsAsync()
+    {
+        var o = LoadLocal();
+        var shared = await SharedRulesAsync();
+        if (shared is JsonElement r)
+        {
+            o["categories"] = JsonNode.Parse(r.GetProperty("pc").GetRawText());
+            o["phone_categories"] = JsonNode.Parse(r.GetProperty("phone").GetRawText());
+        }
+        o["rules_shared"] = shared is not null;
         o["day_start"] ??= "04:00";
         o["tz"] ??= TimeZoneInfo.Local.Id;
         o["views"] ??= new JsonArray();
@@ -74,7 +95,8 @@ public sealed class Bridge
             {
                 var m = Manifest.Load(mf);
                 var installed = Path.Combine(PluginsDir, m.Id, "manifest.json");
-                if (File.Exists(installed) && Manifest.Load(installed).Version == m.Version) continue;
+                // 이 버전이 설치를 끝까지 마쳤으면(.source.json은 등록·켜기가 끝나야 생긴다) 건너뛴다. 파일만 복사되고 등록이 실패했으면 다시 한다
+                if (File.Exists(installed) && Manifest.Load(installed).Version == m.Version && File.Exists(Path.Combine(PluginsDir, m.Id, ".source.json"))) continue;
                 await PluginInstaller.InstallAsync(_db, _cfg.Device, PluginsDir, dir, grantAll: true, "renderer");
                 Log($"내장 위젯 설치: {m.Id} {m.Version}");
             }
@@ -98,8 +120,11 @@ public sealed class Bridge
                 "query" => await QueryAsync(from, args),
                 "outputs" => await _db.ListOutputsAsync(),
                 "renderers" => await RenderersAsync(),
-                "settings" => LoadSettings(),
-                "setSettings" => SetSettings(args),
+                "settings" => await LoadSettingsAsync(),
+                "setSettings" => await SetSettingsAsync(args),
+                "rules" => await RulesAsync(),
+                "setRules" => await SetRulesAsync(args),
+                "platform" => "windows",
                 "installPlugin" => await InstallPluginAsync(args),
                 "registry" => await _db.ListRegistryAsync(),
                 "setEnabled" => await SetEnabledAsync(args),
@@ -153,6 +178,7 @@ public sealed class Bridge
             {
                 id, name = m.Name, version = m.Version,
                 slot = raw.GetProperty("slot").GetString(),
+                platforms = m.Platforms, requires = m.Requires, supported = m.Supports("windows"),
                 entry = $"https://plugin-{id}.lifelog/" + m.Runtimes["webview"],
                 enabled = inst?.Enabled ?? false,
                 unmet = inst is null ? Array.Empty<string>() : JsonSerializer.Deserialize<string[]>(await UnmetAsync(id))!,
@@ -170,11 +196,68 @@ public sealed class Bridge
         return inst is null ? "[]" : "[]";
     }
 
-    private object SetSettings(JsonElement args)
+    /// <summary>로컬 파일에만 쓴다. 규칙이 DB에 있으면(0007) 규칙 키는 파일에 남기지 않는다.</summary>
+    private async Task<object> SetSettingsAsync(JsonElement args)
     {
         Directory.CreateDirectory(Config.Dir);
-        File.WriteAllText(_settingsPath, args[0].GetRawText());
-        return LoadSettings();
+        var o = JsonNode.Parse(args[0].GetRawText())!.AsObject();
+        o.Remove("rules_shared");
+        if (await SharedRulesAsync() is not null) { o.Remove("categories"); o.Remove("phone_categories"); }
+        File.WriteAllText(_settingsPath, o.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
+        return await LoadSettingsAsync();
+    }
+
+    private async Task<object> RulesAsync()
+    {
+        var s = await LoadSettingsAsync();
+        return new { pc = s["categories"], phone = s["phone_categories"], shared = s["rules_shared"]!.GetValue<bool>() };
+    }
+
+    /// <summary>args: [kind(pc | phone), rules 배열]. DB가 0007이면 DB에, 아니면 로컬 파일에.</summary>
+    private async Task<object> SetRulesAsync(JsonElement args)
+    {
+        var kind = args[0].GetString() is "pc" ? "pc" : "phone";
+        var rules = args[1].GetRawText();
+        if (await SharedRulesAsync() is not null)
+        {
+            await _db.SetCategoryRulesAsync(kind, rules);
+            await SharedRulesAsync(fresh: true);
+        }
+        else
+        {
+            var o = LoadLocal();
+            o[kind == "pc" ? "categories" : "phone_categories"] = JsonNode.Parse(rules);
+            Directory.CreateDirectory(Config.Dir);
+            File.WriteAllText(_settingsPath, o.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
+        }
+        return await RulesAsync();
+    }
+
+    /// <summary>0007 DB를 처음 만났을 때: DB 규칙이 비어 있고 로컬 파일에 규칙이 있으면 올리고, 파일에서는 뺀다(사본은 settings.rules-backup.json).</summary>
+    public async Task MigrateLocalRulesAsync()
+    {
+        try
+        {
+            if (await SharedRulesAsync(fresh: true) is not JsonElement shared) return;
+            var local = LoadLocal();
+            var moved = false;
+            foreach (var (key, kind) in new[] { ("categories", "pc"), ("phone_categories", "phone") })
+            {
+                if (local[key] is not JsonArray arr) continue;
+                if (arr.Count > 0 && shared.GetProperty(kind).GetArrayLength() == 0)
+                {
+                    await _db.SetCategoryRulesAsync(kind, arr.ToJsonString());
+                    Log($"분류 규칙 {kind} {arr.Count}개를 로컬 설정에서 DB로 옮김");
+                }
+                moved = true;
+            }
+            if (!moved) return;
+            File.WriteAllText(Path.Combine(Config.Dir, "settings.rules-backup.json"), local.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
+            local.Remove("categories"); local.Remove("phone_categories");
+            File.WriteAllText(_settingsPath, local.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
+            await SharedRulesAsync(fresh: true);
+        }
+        catch (Exception e) { Log("분류 규칙 옮기기 실패: " + e.Message); }
     }
 
     public static string CollectorPluginsDir => Path.Combine(Config.Root, "collector", "plugins");

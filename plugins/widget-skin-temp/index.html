@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<style>
+  :root { --fg:#ddd; --mute:#888; --line:#2a2a2a; --tile:#1f1f22; color-scheme: dark; }
+  :root[data-theme="light"] { --fg:#1c1c1e; --mute:#6b6b70; --line:#dcdce0; --tile:#f2f2f5; color-scheme: light; }
+  html, body { height:100%; }
+  body { margin:0; padding:8px 12px 6px; font: 11px/1.3 "Segoe UI Variable", "Segoe UI", sans-serif; color:var(--fg); background:transparent; overflow:hidden; box-sizing:border-box; }
+  #root { display:flex; flex-direction:column; height:100%; gap:4px; }
+  #root.msg { display:block; color:var(--mute); }
+  .head { display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; flex:none; }
+  .head b { font-size:22px; font-weight:600; }
+  .head .u { font-size:11px; color:var(--mute); margin-left:2px; font-weight:400; }
+  .mute { color:var(--mute); }
+  .chart { flex:1; min-height:40px; position:relative; }
+  .chart svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+  text { fill:var(--mute); font-size:10px; }
+  .list { overflow:auto; flex:1; min-height:0; }
+  .row { display:flex; justify-content:space-between; gap:8px; padding:4px 0; border-top:1px solid var(--line); }
+  .row .r { text-align:right; white-space:nowrap; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fill, minmax(92px, 1fr)); gap:6px; }
+  .tile { background:var(--tile); border-radius:8px; padding:6px 8px; }
+  .tile .k { color:var(--mute); font-size:10px; }
+  .tile .v { font-size:16px; font-weight:600; }
+  .tile .v small { font-size:10px; font-weight:400; color:var(--mute); margin-left:2px; }
+  .tile .s { color:var(--mute); font-size:10px; }
+  .bar { height:5px; background:var(--line); border-radius:3px; overflow:hidden; margin-top:4px; }
+  .bar i { display:block; height:100%; border-radius:3px; }
+  .legend { display:flex; gap:10px; flex-wrap:wrap; flex:none; }
+  .legend i { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:4px; vertical-align:middle; }
+</style></head>
+<body><div id="root" class="msg">불러오는 중…</div>
+<script src="https://app.lifelog/sdk.js"></script>
+<script>
+// 피부 온도(삼성 헬스 SDK skin_temperature, 옛 기록 skin_temp). 하루 그래프와 평소(최근 며칠 평균) 대비 차이.
+const S = LifeLogSdk, C = S.chart;
+const $root = document.getElementById("root");
+const msg = (t, sub) => { $root.className = "msg"; $root.innerHTML = S.esc(t) + (sub ? `<br><span class="mute">${S.esc(sub)}</span>` : ""); };
+const own = (rows, st) => st.device ? rows.filter(r => r.device === st.device) : rows;
+const q = async (view, opts) => (await lifelog.query(view, opts)).rows;
+const r1 = x => Math.round(x * 10) / 10;
+const num = x => Math.round(x).toLocaleString("ko-KR");
+const layout = (parts) => { $root.className = ""; $root.innerHTML = parts; };
+/** 시점 값 꺾은선(하루 범위). spec: { metrics, unit, step, color, fmt, band:[lo,hi]? } */
+function pointChart(range, st, spec) {
+  return (async () => {
+    let rows;
+    try { rows = own(await q("health/point", { range, where: { metric: spec.metrics }, limit: 20000 }), st); }
+    catch (e) { return msg("읽기 실패: " + e.message); }
+    // 여러 출처가 있으면 앞에 적힌 지표를 쓴다
+    let pts = []; for (const m of spec.metrics) { pts = rows.filter(r => r.metric === m && r.value != null); if (pts.length) break; }
+    pts.sort((a, b) => S.ms(a.time) - S.ms(b.time));
+    if (!pts.length) return msg(spec.empty);
+    const vals = pts.map(r => r.value), lo = Math.min(...vals), hi = Math.max(...vals), avg = vals.reduce((a, b) => a + b, 0) / vals.length, last = pts[pts.length - 1];
+    layout('<div class="head"></div><div class="chart"></div>');
+    $root.querySelector(".head").innerHTML = `<b>${spec.fmt(last.value)}</b><span class="u">${spec.unit}</span><span class="mute">${S.fmtTime(last.time)}</span><span class="mute">최저 ${spec.fmt(lo)} · 최고 ${spec.fmt(hi)} · 평균 ${spec.fmt(avg)} · ${pts.length}회</span>` + (spec.extraHead ? spec.extraHead(avg) : "");
+    const el = $root.querySelector(".chart"), { W, H } = C.size(el), L = 26, R = 4, T = 6, B = 16, ph = H - T - B;
+    const S0 = S.ms(range.start), E0 = S.ms(range.end), X = C.scale(S0, E0, L, W - R);
+    const [y0, y1] = C.nice(Math.min(lo, spec.band ? spec.band[0] : lo), Math.max(hi, spec.band ? spec.band[1] : hi), spec.step), Y = C.scale(y0, y1, T + ph, T);
+    let svg = `<svg viewBox="0 0 ${W} ${H}">`;
+    for (const v of [y0, (y0 + y1) / 2, y1]) svg += `<line x1="${L}" x2="${W - R}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="var(--line)"/><text x="${L - 4}" y="${(Y(v) + 3).toFixed(1)}" text-anchor="end">${spec.fmt(v)}</text>`;
+    const p = pts.map(r => ({ x: X(S.ms(r.time)), y: Y(r.value), r }));
+    // 30분 넘게 비면 선을 끊는다
+    let seg = [];
+    const flush = () => { if (seg.length > 1) svg += `<path d="${C.line(seg)}" fill="none" stroke="${spec.color}" stroke-width="1.6"/>`; seg = []; };
+    p.forEach((q2, i) => { if (i && S.ms(q2.r.time) - S.ms(p[i - 1].r.time) > 30 * 60e3) flush(); seg.push(q2); }); flush();
+    if (p.length <= 60) for (const q2 of p) svg += `<circle cx="${q2.x.toFixed(1)}" cy="${q2.y.toFixed(1)}" r="2.5" fill="${spec.color}"><title>${S.fmtTime(q2.r.time)} ${spec.fmt(q2.r.value)}${spec.unit}</title></circle>`;
+    for (const tk of C.hourTicks(S0, E0, X, 6)) svg += `<text x="${Math.min(W - 14, Math.max(L + 10, tk.x)).toFixed(1)}" y="${H - 3}" text-anchor="middle">${C.ampm(tk.t)}</text>`;
+    el.innerHTML = svg + "</svg>";
+  })();
+}
+
+lifelog.ready(async (range, widget) => {
+  const st = widget.settings || {}, n = Math.max(3, Math.min(60, Number(st.days) || 14));
+  let base = null;
+  try {
+    const win = { start: S.daysBack(range, n + 1).start, end: range.start };
+    const prev = own(await q("health/point", { range: win, where: { metric: ["skin_temperature", "skin_temp"] }, limit: 20000 }), st).filter(r => r.value != null);
+    if (prev.length >= 20) base = prev.reduce((a, r) => a + r.value, 0) / prev.length;
+  } catch (_) {}
+  const diff = avg => base == null ? "" : `<span>평소보다 <b style="font-size:15px">${avg - base >= 0 ? "+" : ""}${(avg - base).toFixed(1)}°C</b></span>`;
+  pointChart(range, st, { metrics: ["skin_temperature", "skin_temp"], unit: "°C", step: 0.5, color: "#ffb74d", fmt: v => v.toFixed(1), empty: "피부 온도 기록 없음", extraHead: diff });
+});
+</script></body></html>

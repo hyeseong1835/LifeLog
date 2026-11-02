@@ -4,6 +4,8 @@ const SPANS = ["steps", "steps_daily", "distance_daily", "active_kcal_daily", "t
 const POINTS = ["heart_rate", "spo2", "hrv", "body_temp", "weight"];
 // 삼성 헬스 Data SDK(read:shealth, 선택). 행 모양이 같아 start가 있으면 구간, 없으면 시점으로 넣는다. 기본은 Health Connect에 없는 것만.
 const SHEALTH_DEFAULT = ["energy_score", "sleep_score", "skin_temperature", "active_time", "blood_pressure", "blood_glucose", "body_composition", "water", "nutrition", "nutrition_kcal", "sleep_apnea", "irregular_heart_rhythm", "steps_goal", "active_kcal_goal", "active_time_goal", "water_goal", "sleep_goal", "nutrition_goal"];
+// 삼성 헬스 시점 행의 숫자 extra(혈압 이완기·체지방 등)는 "지표.키" 시점으로 따로 남긴다. point 출력에는 extra 열이 없다.
+const EXTRA_UNIT = { diastolic: "mmHg", mean: "mmHg", pulse: "bpm", height: "cm", body_fat: "%", skeletal_muscle: "%", muscle_mass: "kg", body_fat_mass: "kg", fat_free_mass: "kg", skeletal_muscle_mass: "kg", total_body_water: "kg", bmi: "", bmr: "kcal" };
 const NAME = { steps_daily: "steps", distance_daily: "distance", active_kcal_daily: "active_kcal", total_kcal_daily: "total_kcal", floors_daily: "floors", resting_heart_rate_daily: "resting_heart_rate" };
 export default {
   start(ctx) {
@@ -33,7 +35,10 @@ export default {
         let rows; try { rows = ctx.read("shealth", { metric: m, from: from.toISOString(), to: to.toISOString() }); } catch (e) { ctx.log("warn", "shealth " + m + ": " + e.message); continue; }
         for (const r of rows) {
           if (r.start) ctx.span.put("span", { start: r.start, end: r.end, metric: m, value: r.value, category: r.category, extra: JSON.stringify(Object.assign({ unit: r.unit }, r.extra || {})) });
-          else ctx.event.emit("point", { time: r.time, metric: m, value: r.value, unit: r.unit });
+          else {
+            ctx.event.emit("point", { time: r.time, metric: m, value: r.value, unit: r.unit });
+            for (const [k, v] of Object.entries(r.extra || {})) if (typeof v === "number") { ctx.event.emit("point", { time: r.time, metric: m + "." + k, value: v, unit: EXTRA_UNIT[k] ?? "" }); n++; }
+          }
           n++;
         }
       }
