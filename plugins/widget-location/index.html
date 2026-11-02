@@ -95,7 +95,15 @@ function draw() {
 }
 
 // ---- 조작 ----
-map.addEventListener("wheel", e => { e.preventDefault(); const b = map.getBoundingClientRect(); zoomAt(e.deltaY < 0 ? 1 : -1, e.clientX - b.left, e.clientY - b.top); }, { passive: false });
+// 휠: 한 칸(약 100)마다 한 단계. 터치패드의 작은 값은 모아서 한 단계가 되면 바꾼다
+let wheelAcc = 0;
+map.addEventListener("wheel", e => {
+  e.preventDefault();
+  wheelAcc += e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+  const steps = Math.trunc(wheelAcc / 100); if (!steps) return;
+  wheelAcc -= steps * 100;
+  const r = map.getBoundingClientRect(); zoomAt(-Math.max(-3, Math.min(3, steps)), e.clientX - r.left, e.clientY - r.top);
+}, { passive: false });
 map.addEventListener("dblclick", e => { if (e.target.closest(".ctl")) return; const b = map.getBoundingClientRect(); zoomAt(e.shiftKey ? -1 : 1, e.clientX - b.left, e.clientY - b.top); });
 const ptrs = new Map(); let pinch = null, lastTap = 0;
 map.addEventListener("pointerdown", e => {
